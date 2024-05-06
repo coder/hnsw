@@ -70,8 +70,22 @@ func (h *Heap[T]) Pop() T {
 	return heap.Pop(&h.inner).(T)
 }
 
+func (h *Heap[T]) PopLast() T {
+	return h.Remove(h.Len() - 1)
+}
+
 // Remove removes and returns the element at index i from the heap.
 // The complexity is O(log n) where n = h.Len().
 func (h *Heap[T]) Remove(i int) T {
 	return heap.Remove(&h.inner, i).(T)
+}
+
+// Min returns the minimum element in the heap.
+func (h *Heap[T]) Min() T {
+	return h.inner.data[0]
+}
+
+// Max returns the maximum element in the heap.
+func (h *Heap[T]) Max() T {
+	return h.inner.data[h.inner.Len()-1]
 }
