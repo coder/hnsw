@@ -34,7 +34,7 @@ func (n *layerNode[T]) addNeighbor(o *layerNode[T], m int, dist DistanceFunc) {
 
 	// Find the neighbor with the worst distance.
 	var (
-		worstDist float32
+		worstDist = float32(math.Inf(-1))
 		worstIdx  int
 	)
 	for i, neighbor := range n.neighbors {
@@ -114,7 +114,8 @@ func (n *layerNode[T]) search(
 			}
 		}
 
-		// Termination condition: no improvement in distance
+		// Termination condition: no improvement in distance and at least
+		// kMin candidates in the result set.
 		if !improved && result.Len() >= kMin {
 			break
 		}
@@ -268,6 +269,9 @@ func (h *HNSW[T]) Add(n Embeddable) {
 		elevator = nodes[0].node.point.ID()
 
 		if insertLevel >= i {
+			if _, ok := layer.nodes[n.ID()]; ok {
+				panic("must implement deleting nodes that exist")
+			}
 			// Insert the new node into the layer.
 			layer.nodes[n.ID()] = newNode
 			for _, node := range nodes {

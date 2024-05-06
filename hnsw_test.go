@@ -12,10 +12,10 @@ func Test_maxLevel(t *testing.T) {
 	var m int
 
 	m = maxLevel(0.5, 10)
-	require.Equal(t, 3, m)
+	require.Equal(t, 4, m)
 
 	m = maxLevel(0.5, 1000)
-	require.Equal(t, 10, m)
+	require.Equal(t, 11, m)
 }
 
 type basicPoint struct {
@@ -58,8 +58,8 @@ func Test_layerNode_search(t *testing.T) {
 
 	best := entry.search(2, 2, 4, []float32{4}, EuclideanDistance)
 
-	require.Equal(t, "n3.8", best[0].node.point.ID())
-	require.Equal(t, "n4.3", best[1].node.point.ID())
+	require.Equal(t, "3.8", best[0].node.point.ID())
+	require.Equal(t, "4.3", best[1].node.point.ID())
 	require.Len(t, best, 2)
 }
 
@@ -103,4 +103,30 @@ func TestHNSW_AddSearch(t *testing.T) {
 		},
 		nearest,
 	)
+}
+
+func Benchmark_HSNW(b *testing.B) {
+	b.ReportAllocs()
+
+	sizes := []int{100, 1000, 10000}
+
+	// Use this to ensure that complexity is O(log n) where n = h.Len().
+	for _, size := range sizes {
+		b.Run(strconv.Itoa(size), func(b *testing.B) {
+			g := HNSW[basicPoint]{}
+			for i := 0; i < size; i++ {
+				g.Add(basicPoint{x: float32(i)})
+			}
+			b.ResetTimer()
+
+			b.Run("Search", func(b *testing.B) {
+				for i := 0; i < b.N; i++ {
+					g.Search(
+						[]float32{float32(i % size)},
+						4,
+					)
+				}
+			})
+		})
+	}
 }
