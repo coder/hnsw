@@ -57,8 +57,9 @@ func Test_layerNode_search(t *testing.T) {
 
 	target := basicPoint{id: "target", x: 4}
 
-	best := entry.search(2, target, EuclideanDistance)
-	if best.point.ID() != "n3.8" {
-		t.Errorf("unexpected best node: %s", best.point.ID())
-	}
+	best := entry.search(2, 4, target, EuclideanDistance)
+
+	require.Equal(t, "n3.8", best[0].node.point.ID())
+	require.Equal(t, "n4.3", best[1].node.point.ID())
+	require.Len(t, best, 2)
 }

@@ -89,3 +89,7 @@ func (h *Heap[T]) Min() T {
 func (h *Heap[T]) Max() T {
 	return h.inner.data[h.inner.Len()-1]
 }
+
+func (h *Heap[T]) Slice() []T {
+	return h.inner.data
+}

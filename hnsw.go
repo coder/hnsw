@@ -34,10 +34,12 @@ func (s searchCandidate[T]) Less(o searchCandidate[T]) bool {
 // search returns the layer node closest to the target node
 // within the same layer.
 func (n *layerNode[T]) search(
+	// m is the number of neighbors in the result set.
+	m int,
 	efSearch int,
 	target Embeddable,
 	distance DistanceFunc,
-) *layerNode[T] {
+) []searchCandidate[T] {
 	// This is a basic greedy algorithm to find the entry point at the given level
 	// that is closest to the target node.
 	candidates := heap.Heap[searchCandidate[T]]{}
@@ -48,10 +50,10 @@ func (n *layerNode[T]) search(
 		},
 	)
 	var (
-		best         = n
-		visited      = make(map[string]bool)
-		bestDistance = candidates.Min().dist
+		result  = heap.Heap[searchCandidate[T]]{}
+		visited = make(map[string]bool)
 	)
+	result.Push(candidates.Min())
 	for candidates.Len() > 0 {
 		current := candidates.Pop().node
 		if visited[current.point.ID()] {
@@ -66,11 +68,14 @@ func (n *layerNode[T]) search(
 			}
 
 			dist := distance(neighbor.point.Embedding(), target.Embedding())
-			if dist < bestDistance {
-				best = neighbor
-				bestDistance = dist
-				improved = true
+			improved = improved || dist < result.Min().dist
+			if result.Len() < m {
+				result.Push(searchCandidate[T]{node: neighbor, dist: dist})
+			} else if dist < result.Max().dist {
+				result.PopLast()
+				result.Push(searchCandidate[T]{node: neighbor, dist: dist})
 			}
+
 			// Always store candidates if we haven't reached the limit.
 			if candidates.Len() < efSearch {
 				candidates.Push(searchCandidate[T]{node: neighbor, dist: dist})
@@ -87,7 +92,7 @@ func (n *layerNode[T]) search(
 		}
 	}
 
-	return best
+	return result.Slice()
 }
 
 type layer[T Embeddable] struct {
@@ -180,8 +185,7 @@ func (h *HNSW[T]) Add(n Embeddable) {
 	for i := level; i >= 0; i-- {
 		layer := h.layers[i]
 		newNode := &layerNode[T]{
-			point:     n,
-			neighbors: make([]*layerNode[T], level+1),
+			point: n,
 		}
 		// Insert the new node into the layer.
 		if layer.entry == nil {
