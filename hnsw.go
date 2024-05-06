@@ -5,7 +5,7 @@ import (
 	"math/rand"
 	"time"
 
-	"github.com/ammario/hnsw/heap"
+	"github.com/coder/hnsw/heap"
 )
 
 type Embedding = []float32

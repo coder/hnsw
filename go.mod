@@ -1,4 +1,4 @@
-module github.com/ammario/hnsw
+module github.com/coder/hnsw
 
 go 1.21.4
 
