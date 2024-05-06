@@ -22,6 +22,31 @@ type layerNode[T Embeddable] struct {
 	neighbors []*layerNode[T]
 }
 
+// addNeighbor adds a o neighbor to the node, replacing the neighbor
+// with the worst distance if the neighbor set is full.
+func (n *layerNode[T]) addNeighbor(o *layerNode[T], m int, dist DistanceFunc) {
+	if len(n.neighbors) < m {
+		n.neighbors = append(n.neighbors, o)
+		return
+	}
+
+	// Find the neighbor with the worst distance.
+	var (
+		worstDist float32
+		worstIdx  int
+	)
+	for i, neighbor := range n.neighbors {
+		d := dist(neighbor.point.Embedding(), n.point.Embedding())
+		if d > worstDist {
+			worstDist = d
+			worstIdx = i
+		}
+	}
+
+	// Replace the worst neighbor with the new one.
+	n.neighbors[worstIdx] = o
+}
+
 type searchCandidate[T Embeddable] struct {
 	node *layerNode[T]
 	dist float32
@@ -112,11 +137,16 @@ func (l *layer[T]) size() int {
 
 type Parameters struct {
 	// M is the maximum number of neighbors to keep for each node.
-	M        int
+	M int
+	// Distance is the distance function used to compare embeddings.
 	Distance DistanceFunc
+
 	// Ml is the level generation factor. E.g. 1 / log(Ml) is the probability
 	// of adding a node to a level.
 	Ml float64
+
+	// EfSearch is the number of nodes to consider in the search phase.
+	EfSearch int
 
 	// Rng is used for level generation. It may be set to a deterministic value
 	// for reproducibility. Note that deterministic number generation can lead to
@@ -175,22 +205,59 @@ func (h *HNSW[T]) params() *Parameters {
 }
 
 func (h *HNSW[T]) Add(n Embeddable) {
-	level := h.randomLevel()
+	insertLevel := h.randomLevel()
 	// Create layers that don't exist yet.
-	for level > len(h.layers) {
+	for insertLevel > len(h.layers) {
 		h.layers = append(h.layers, layer[T]{})
 	}
 
+	var elevator string
+
 	// Insert node at each layer, beginning with the highest.
-	for i := level; i >= 0; i-- {
+	for i := len(h.layers) - 1; i >= 0; i-- {
 		layer := h.layers[i]
 		newNode := &layerNode[T]{
 			point: n,
 		}
+
 		// Insert the new node into the layer.
 		if layer.entry == nil {
-			h.layers[i].entry = newNode
+			layer.entry = newNode
+			layer.nodes = map[string]*layerNode[T]{n.ID(): newNode}
 			continue
+		}
+
+		var (
+			m        = h.params().M
+			efSearch = h.params().EfSearch
+		)
+
+		// Now at the highest layer with more than one node, so we can begin
+		// searching for the best way to enter the graph.
+		searchPoint := layer.entry
+
+		// On subsequent layers, we use the elevator node to enter the graph
+		// at the best point.
+		if elevator != "" {
+			searchPoint = layer.nodes[elevator]
+		}
+		nodes := searchPoint.search(m, efSearch, n, h.params().Distance)
+		if len(nodes) == 0 {
+			// This should never happen.
+			panic("no nodes found")
+		}
+
+		// Re-set the elevator node for the next layer.
+		elevator = nodes[0].node.point.ID()
+
+		if insertLevel >= i {
+			// Insert the new node into the layer.
+			layer.nodes[n.ID()] = newNode
+			for _, node := range nodes {
+				// Create a bi-directional edge between the new node and the best node.
+				node.node.addNeighbor(newNode, m, h.params().Distance)
+				newNode.addNeighbor(node.node, m, h.params().Distance)
+			}
 		}
 
 	}
