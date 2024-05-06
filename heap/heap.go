@@ -43,24 +43,35 @@ type Heap[T Lessable[T]] struct {
 	inner innerHeap[T]
 }
 
+// Init establishes the heap invariants required by the other routines in this package.
+// Init is idempotent with respect to the heap invariants
+// and may be called whenever the heap invariants may have been invalidated.
+// The complexity is O(n) where n = h.Len().
+func (h *Heap[T]) Init(d []T) {
+	h.inner.data = d
+	heap.Init(&h.inner)
+}
+
 // Len returns the number of elements in the heap.
 func (h *Heap[T]) Len() int {
 	return h.inner.Len()
 }
 
-// Push adds an element to the heap, maintaining the heap property.
+// Push pushes the element x onto the heap.
+// The complexity is O(log n) where n = h.Len().
 func (h *Heap[T]) Push(x T) {
 	heap.Push(&h.inner, x)
 }
 
-// Pop removes and returns the minimum element from the heap,
-// maintaining the heap property.
+// Pop removes and returns the minimum element (according to Less) from the heap.
+// The complexity is O(log n) where n = h.Len().
+// Pop is equivalent to Remove(h, 0).
 func (h *Heap[T]) Pop() T {
 	return heap.Pop(&h.inner).(T)
 }
 
-// Remove removes and returns the element at index i from the heap,
-// maintaining the heap property.
+// Remove removes and returns the element at index i from the heap.
+// The complexity is O(log n) where n = h.Len().
 func (h *Heap[T]) Remove(i int) T {
 	return heap.Remove(&h.inner, i).(T)
 }
