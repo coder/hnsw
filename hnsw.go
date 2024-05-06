@@ -8,13 +8,15 @@ import (
 	"github.com/ammario/hnsw/heap"
 )
 
+type Embedding = []float32
+
 // Embeddable describes a type that can be embedded in a HNSW graph.
 type Embeddable interface {
 	// ID returns a unique identifier for the object.
 	ID() string
 	// Embedding returns the embedding of the object.
 	// float32 is used for compatibility with OpenAI embeddings.
-	Embedding() []float32
+	Embedding() Embedding
 }
 
 type layerNode[T Embeddable] struct {
@@ -59,10 +61,11 @@ func (s searchCandidate[T]) Less(o searchCandidate[T]) bool {
 // search returns the layer node closest to the target node
 // within the same layer.
 func (n *layerNode[T]) search(
-	// m is the number of neighbors in the result set.
-	m int,
+	// k is the number of candidates in the result set.
+	kMin int,
+	kMax int,
 	efSearch int,
-	target Embeddable,
+	target Embedding,
 	distance DistanceFunc,
 ) []searchCandidate[T] {
 	// This is a basic greedy algorithm to find the entry point at the given level
@@ -71,7 +74,7 @@ func (n *layerNode[T]) search(
 	candidates.Push(
 		searchCandidate[T]{
 			node: n,
-			dist: distance(n.point.Embedding(), target.Embedding()),
+			dist: distance(n.point.Embedding(), target),
 		},
 	)
 	var (
@@ -92,9 +95,9 @@ func (n *layerNode[T]) search(
 				continue
 			}
 
-			dist := distance(neighbor.point.Embedding(), target.Embedding())
+			dist := distance(neighbor.point.Embedding(), target)
 			improved = improved || dist < result.Min().dist
-			if result.Len() < m {
+			if result.Len() < kMax {
 				result.Push(searchCandidate[T]{node: neighbor, dist: dist})
 			} else if dist < result.Max().dist {
 				result.PopLast()
@@ -112,7 +115,7 @@ func (n *layerNode[T]) search(
 		}
 
 		// Termination condition: no improvement in distance
-		if !improved {
+		if !improved && result.Len() >= kMin {
 			break
 		}
 	}
@@ -154,9 +157,11 @@ type Parameters struct {
 	Rng *rand.Rand
 }
 
-var DefaultParameters = &Parameters{
+var DefaultParameters = Parameters{
 	M:        6,
+	Ml:       0.5,
 	Distance: CosineSimilarity,
+	EfSearch: 20,
 	Rng:      rand.New(rand.NewSource(time.Now().UnixNano())),
 }
 
@@ -166,14 +171,26 @@ var DefaultParameters = &Parameters{
 type HNSW[T Embeddable] struct {
 	*Parameters
 
-	layers []layer[T]
+	layers []*layer[T]
 }
 
 // maxLevel returns an upper-bound on the number of levels in the graph
 // based on the size of the base layer.
-func maxLevel(ml float64, nodes int) int {
-	l := math.Log(float64(nodes)) / math.Log((1 / ml))
-	return int(math.Round(l))
+func maxLevel(ml float64, numNodes int) int {
+	if ml == 0 {
+		panic("ml must be greater than 0")
+	}
+
+	if numNodes == 0 {
+		return 1
+	}
+
+	l := math.Log(float64(numNodes))
+	l /= math.Log(1 / ml)
+
+	m := int(math.Round(l)) + 1
+
+	return m
 }
 
 // randomLevel generates a random level for a new node.
@@ -185,30 +202,28 @@ func (h *HNSW[T]) randomLevel() int {
 		max = maxLevel(h.params().Ml, h.layers[0].size())
 	}
 
-	r := h.params().Rng.Float64()
-
-	level := math.Log(r) / -math.Log(h.params().Ml)
-
-	if level > float64(max) {
-		return max
+	for level := 0; level < max; level++ {
+		r := h.params().Rng.Float64()
+		if r > h.params().Ml {
+			return level
+		}
 	}
 
-	return int(math.Round(level))
+	return max
 }
 
-func (h *HNSW[T]) params() *Parameters {
+func (h *HNSW[T]) params() Parameters {
 	if h.Parameters == nil {
 		return DefaultParameters
 	}
-
-	return h.Parameters
+	return *h.Parameters
 }
 
 func (h *HNSW[T]) Add(n Embeddable) {
 	insertLevel := h.randomLevel()
 	// Create layers that don't exist yet.
 	for insertLevel > len(h.layers) {
-		h.layers = append(h.layers, layer[T]{})
+		h.layers = append(h.layers, &layer[T]{})
 	}
 
 	var elevator string
@@ -241,9 +256,11 @@ func (h *HNSW[T]) Add(n Embeddable) {
 		if elevator != "" {
 			searchPoint = layer.nodes[elevator]
 		}
-		nodes := searchPoint.search(m, efSearch, n, h.params().Distance)
+
+		nodes := searchPoint.search(m, m, efSearch, n.Embedding(), h.params().Distance)
 		if len(nodes) == 0 {
-			// This should never happen.
+			// This should never happen because the searchPoint itself
+			// should be in the result set.
 			panic("no nodes found")
 		}
 
@@ -259,6 +276,42 @@ func (h *HNSW[T]) Add(n Embeddable) {
 				newNode.addNeighbor(node.node, m, h.params().Distance)
 			}
 		}
-
 	}
+}
+
+func (h *HNSW[T]) Search(near Embedding, k int) []T {
+	if len(h.layers) == 0 {
+		return nil
+	}
+
+	var (
+		efSearch = h.params().EfSearch
+
+		elevator string
+	)
+
+	for layer := len(h.layers) - 1; layer >= 0; layer-- {
+		searchPoint := h.layers[layer].entry
+		if elevator != "" {
+			searchPoint = h.layers[layer].nodes[elevator]
+		}
+
+		// Descending hierarchies
+		if layer > 0 {
+			nodes := searchPoint.search(1, 1, efSearch, near, h.params().Distance)
+			elevator = nodes[0].node.point.ID()
+			continue
+		}
+
+		// At the base layer, we can return the results.
+		nodes := searchPoint.search(k, k, efSearch, near, h.params().Distance)
+		var out []T
+		for _, node := range nodes {
+			out = append(out, node.node.point.(T))
+		}
+
+		return out
+	}
+
+	panic("unreachable")
 }
