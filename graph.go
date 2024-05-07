@@ -215,10 +215,10 @@ var DefaultParameters = Parameters{
 	Rng:      rand.New(rand.NewSource(time.Now().UnixNano())),
 }
 
-// HNSW is a Hierarchical Navigable Small World graph.
+// Graph is a Hierarchical Navigable Small World graph.
 // The zero value is an empty graph with default parameters.
 // Multi-threaded access must be synchronized externally.
-type HNSW[T Embeddable] struct {
+type Graph[T Embeddable] struct {
 	*Parameters
 
 	layers []*layer[T]
@@ -246,7 +246,7 @@ func maxLevel(ml float64, numNodes int) int {
 }
 
 // randomLevel generates a random level for a new node.
-func (h *HNSW[T]) randomLevel() int {
+func (h *Graph[T]) randomLevel() int {
 	// max avoids having to accept an additional parameter for the maximum level
 	// by calculating a probably good one from the size of the base layer.
 	max := 1
@@ -264,14 +264,14 @@ func (h *HNSW[T]) randomLevel() int {
 	return max
 }
 
-func (h *HNSW[T]) params() Parameters {
+func (h *Graph[T]) params() Parameters {
 	if h.Parameters == nil {
 		return DefaultParameters
 	}
 	return *h.Parameters
 }
 
-func (h *HNSW[T]) Add(n T) {
+func (h *Graph[T]) Add(n T) {
 	if h.dims == 0 {
 		h.dims = len(n.Embedding())
 	} else if h.dims != len(n.Embedding()) {
@@ -350,7 +350,7 @@ func (h *HNSW[T]) Add(n T) {
 	}
 }
 
-func (h *HNSW[T]) Search(near Embedding, k int) []T {
+func (h *Graph[T]) Search(near Embedding, k int) []T {
 	if len(near) != h.dims {
 		panic(fmt.Sprint("embedding dimension mismatch: ", len(near), " != ", h.dims))
 	}
@@ -391,7 +391,7 @@ func (h *HNSW[T]) Search(near Embedding, k int) []T {
 }
 
 // Len returns the number of nodes in the graph.
-func (h *HNSW[T]) Len() int {
+func (h *Graph[T]) Len() int {
 	if len(h.layers) == 0 {
 		return 0
 	}
@@ -401,7 +401,7 @@ func (h *HNSW[T]) Len() int {
 // Delete removes a node from the graph by ID.
 // It tries to preserve the clustering properties of the graph by
 // replenishing the affected neighborhoods.
-func (h *HNSW[T]) Delete(id string) {
+func (h *Graph[T]) Delete(id string) {
 	if len(h.layers) == 0 {
 		return
 	}
@@ -417,7 +417,7 @@ func (h *HNSW[T]) Delete(id string) {
 }
 
 // Lookup returns the node with the given ID.
-func (h *HNSW[T]) Lookup(id string) (T, bool) {
+func (h *Graph[T]) Lookup(id string) (T, bool) {
 	var zero T
 	if len(h.layers) == 0 {
 		return zero, false

@@ -62,7 +62,7 @@ func Test_layerNode_search(t *testing.T) {
 func TestHNSW_AddSearch(t *testing.T) {
 	t.Parallel()
 
-	g := HNSW[basicPoint]{}
+	g := Graph[basicPoint]{}
 	g.Parameters = &Parameters{
 		M:        6,
 		Distance: EuclideanDistance,
@@ -107,12 +107,30 @@ func TestHNSW_AddSearch(t *testing.T) {
 func TestHNSW_AddDelete(t *testing.T) {
 	t.Parallel()
 
-	g := HNSW[basicPoint]{}
+	g := Graph[basicPoint]{}
 	for i := 0; i < 128; i++ {
 		g.Add(basicPoint(i))
 	}
 
 	require.Equal(t, 128, g.Len())
+	an := Analyzer[basicPoint]{Graph: &g}
+
+	preDeleteConnectivity := an.Connectivity()
+
+	// Delete every even node.
+	for i := 0; i < 128; i += 2 {
+		g.Delete(basicPoint(i).ID())
+	}
+
+	require.Equal(t, 64, g.Len())
+
+	postDeleteConnectivity := an.Connectivity()
+
+	// Connectivity should be the same for the lowest layer.
+	require.Equal(
+		t, preDeleteConnectivity[0],
+		postDeleteConnectivity[0],
+	)
 }
 
 func Benchmark_HSNW(b *testing.B) {
@@ -123,7 +141,7 @@ func Benchmark_HSNW(b *testing.B) {
 	// Use this to ensure that complexity is O(log n) where n = h.Len().
 	for _, size := range sizes {
 		b.Run(strconv.Itoa(size), func(b *testing.B) {
-			g := HNSW[basicPoint]{}
+			g := Graph[basicPoint]{}
 			for i := 0; i < size; i++ {
 				g.Add(basicPoint(i))
 			}
@@ -165,7 +183,7 @@ func randFloats(n int) []float32 {
 func Benchmark_HNSW_1536(b *testing.B) {
 	b.ReportAllocs()
 
-	g := HNSW[genericPoint]{}
+	g := Graph[genericPoint]{}
 	const size = 1000
 	points := make([]genericPoint, size)
 	for i := 0; i < size; i++ {
