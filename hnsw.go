@@ -1,6 +1,7 @@
 package hnsw
 
 import (
+	"fmt"
 	"math"
 	"math/rand"
 	"time"
@@ -71,6 +72,7 @@ func (n *layerNode[T]) search(
 	// This is a basic greedy algorithm to find the entry point at the given level
 	// that is closest to the target node.
 	candidates := heap.Heap[searchCandidate[T]]{}
+	candidates.Init(make([]searchCandidate[T], 0, efSearch))
 	candidates.Push(
 		searchCandidate[T]{
 			node: n,
@@ -81,6 +83,7 @@ func (n *layerNode[T]) search(
 		result  = heap.Heap[searchCandidate[T]]{}
 		visited = make(map[string]bool)
 	)
+	result.Init(make([]searchCandidate[T], 0, kMax))
 	result.Push(candidates.Min())
 	for candidates.Len() > 0 {
 		current := candidates.Pop().node
@@ -173,6 +176,8 @@ type HNSW[T Embeddable] struct {
 	*Parameters
 
 	layers []*layer[T]
+
+	dims int
 }
 
 // maxLevel returns an upper-bound on the number of levels in the graph
@@ -220,7 +225,12 @@ func (h *HNSW[T]) params() Parameters {
 	return *h.Parameters
 }
 
-func (h *HNSW[T]) Add(n Embeddable) {
+func (h *HNSW[T]) Add(n T) {
+	if h.dims == 0 {
+		h.dims = len(n.Embedding())
+	} else if h.dims != len(n.Embedding()) {
+		panic("embedding dimension mismatch")
+	}
 	insertLevel := h.randomLevel()
 	// Create layers that don't exist yet.
 	for insertLevel > len(h.layers) {
@@ -284,6 +294,9 @@ func (h *HNSW[T]) Add(n Embeddable) {
 }
 
 func (h *HNSW[T]) Search(near Embedding, k int) []T {
+	if len(near) != h.dims {
+		panic(fmt.Sprint("embedding dimension mismatch: ", len(near), " != ", h.dims))
+	}
 	if len(h.layers) == 0 {
 		return nil
 	}
@@ -309,7 +322,7 @@ func (h *HNSW[T]) Search(near Embedding, k int) []T {
 
 		// At the base layer, we can return the results.
 		nodes := searchPoint.search(k, k, efSearch, near, h.params().Distance)
-		var out []T
+		out := make([]T, 0, len(nodes))
 		for _, node := range nodes {
 			out = append(out, node.node.point.(T))
 		}

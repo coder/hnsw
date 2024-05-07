@@ -130,3 +130,46 @@ func Benchmark_HSNW(b *testing.B) {
 		})
 	}
 }
+
+type genericPoint struct {
+	id string
+	x  []float32
+}
+
+func (n genericPoint) ID() string {
+	return n.id
+}
+
+func (n genericPoint) Embedding() []float32 {
+	return n.x
+}
+
+func randFloats(n int) []float32 {
+	x := make([]float32, n)
+	for i := range x {
+		x[i] = rand.Float32()
+	}
+	return x
+}
+
+func Benchmark_HNSW_1536(b *testing.B) {
+	b.ReportAllocs()
+
+	g := HNSW[genericPoint]{}
+	const size = 1000
+	points := make([]genericPoint, size)
+	for i := 0; i < size; i++ {
+		points[i] = genericPoint{x: randFloats(1536), id: strconv.Itoa(i)}
+		g.Add(points[i])
+	}
+	b.ResetTimer()
+
+	b.Run("Search", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			g.Search(
+				points[i%size].x,
+				4,
+			)
+		}
+	})
+}

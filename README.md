@@ -7,6 +7,12 @@ vector data.
 
 They are well-suited for semantic search applications on OpenAI embeddings.
 
+## Performance
+
+By and large the greatest effect you can have on the performance of the graph
+is reducing the dimensionality of your data. At 1536 dimensions (OpenAI default),
+70% of the query process under default parameters is spent in the distance function. 
+
 ## Roadmap
 
 - [ ] Implement durable, file-system backend
