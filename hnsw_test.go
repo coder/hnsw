@@ -63,9 +63,13 @@ func TestHNSW_AddSearch(t *testing.T) {
 	t.Parallel()
 
 	g := HNSW[basicPoint]{}
-	g.Parameters = &DefaultParameters
-	g.Parameters.Rng = rand.New(rand.NewSource(0))
-	g.Parameters.Distance = EuclideanDistance
+	g.Parameters = &Parameters{
+		M:        6,
+		Distance: EuclideanDistance,
+		Ml:       0.5,
+		EfSearch: 20,
+		Rng:      rand.New(rand.NewSource(0)),
+	}
 
 	for i := 0; i < 128; i++ {
 		g.Add(basicPoint(float32(i)))
@@ -75,7 +79,6 @@ func TestHNSW_AddSearch(t *testing.T) {
 	// Layers should be approximately log2(128) = 7
 
 	// Look for an approximate doubling of the number of nodes in each layer.
-	require.Equal(t, 1, g.layers[6].size())
 	require.Equal(t, 1, g.layers[5].size())
 	require.Equal(t, 4, g.layers[4].size())
 	require.Equal(t, 11, g.layers[3].size())
@@ -105,7 +108,11 @@ func TestHNSW_AddDelete(t *testing.T) {
 	t.Parallel()
 
 	g := HNSW[basicPoint]{}
-	g.Add(1)
+	for i := 0; i < 128; i++ {
+		g.Add(basicPoint(i))
+	}
+
+	require.Equal(t, 128, g.Len())
 }
 
 func Benchmark_HSNW(b *testing.B) {

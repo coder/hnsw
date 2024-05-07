@@ -279,11 +279,17 @@ func (h *HNSW[T]) Add(n T) {
 	}
 	insertLevel := h.randomLevel()
 	// Create layers that don't exist yet.
-	for insertLevel > len(h.layers) {
+	for insertLevel >= len(h.layers) {
 		h.layers = append(h.layers, &layer[T]{})
 	}
 
+	if insertLevel < 0 {
+		panic("invalid level")
+	}
+
 	var elevator string
+
+	preLen := h.Len()
 
 	// Insert node at each layer, beginning with the highest.
 	for i := len(h.layers) - 1; i >= 0; i-- {
@@ -314,15 +320,15 @@ func (h *HNSW[T]) Add(n T) {
 			searchPoint = layer.nodes[elevator]
 		}
 
-		nodes := searchPoint.search(m, efSearch, n.Embedding(), h.params().Distance)
-		if len(nodes) == 0 {
+		neighborhood := searchPoint.search(m, efSearch, n.Embedding(), h.params().Distance)
+		if len(neighborhood) == 0 {
 			// This should never happen because the searchPoint itself
 			// should be in the result set.
 			panic("no nodes found")
 		}
 
 		// Re-set the elevator node for the next layer.
-		elevator = nodes[0].node.point.ID()
+		elevator = neighborhood[0].node.point.ID()
 
 		if insertLevel >= i {
 			if _, ok := layer.nodes[n.ID()]; ok {
@@ -330,12 +336,17 @@ func (h *HNSW[T]) Add(n T) {
 			}
 			// Insert the new node into the layer.
 			layer.nodes[n.ID()] = newNode
-			for _, node := range nodes {
+			for _, node := range neighborhood {
 				// Create a bi-directional edge between the new node and the best node.
 				node.node.addNeighbor(newNode, m, h.params().Distance)
 				newNode.addNeighbor(node.node, m, h.params().Distance)
 			}
 		}
+	}
+
+	// Invariant check: the node should have been added to the graph.
+	if h.Len() != preLen+1 {
+		panic("node not added")
 	}
 }
 
