@@ -21,33 +21,39 @@ type Embeddable interface {
 }
 
 type layerNode[T Embeddable] struct {
-	point     Embeddable
-	neighbors []*layerNode[T]
+	point Embeddable
+	// neighbors is map of neighbor IDs to neighbor nodes.
+	// It is a map and not a slice to allow for efficient deletes, esp.
+	// when M is high.
+	neighbors map[string]*layerNode[T]
 }
 
 // addNeighbor adds a o neighbor to the node, replacing the neighbor
 // with the worst distance if the neighbor set is full.
 func (n *layerNode[T]) addNeighbor(o *layerNode[T], m int, dist DistanceFunc) {
+	if n.neighbors == nil {
+		n.neighbors = make(map[string]*layerNode[T], m)
+	}
 	if len(n.neighbors) < m {
-		n.neighbors = append(n.neighbors, o)
+		n.neighbors[o.point.ID()] = o
 		return
 	}
 
 	// Find the neighbor with the worst distance.
 	var (
 		worstDist = float32(math.Inf(-1))
-		worstIdx  int
+		worstId   string
 	)
-	for i, neighbor := range n.neighbors {
+	for id, neighbor := range n.neighbors {
 		d := dist(neighbor.point.Embedding(), n.point.Embedding())
 		if d > worstDist {
 			worstDist = d
-			worstIdx = i
+			worstId = id
 		}
 	}
 
 	// Replace the worst neighbor with the new one.
-	n.neighbors[worstIdx] = o
+	n.neighbors[worstId] = o
 }
 
 type searchCandidate[T Embeddable] struct {
@@ -125,6 +131,40 @@ func (n *layerNode[T]) search(
 	}
 
 	return result.Slice()
+}
+
+func (n *layerNode[T]) replenish(m int) {
+	if len(n.neighbors) >= m {
+		return
+	}
+
+	// Restore connectivity by adding new neighbors.
+	// This is a naive implementation that could be improved by
+	// using a priority queue to find the best candidates.
+	for _, neighbor := range n.neighbors {
+		for id, candidate := range neighbor.neighbors {
+			if _, ok := n.neighbors[id]; ok {
+				// do not add duplicates
+				continue
+			}
+			if candidate == n {
+				continue
+			}
+			n.addNeighbor(candidate, m, CosineSimilarity)
+			if len(n.neighbors) >= m {
+				return
+			}
+		}
+	}
+}
+
+// isolates remove the node from the graph by removing all connections
+// to neighbors.
+func (n *layerNode[T]) isolate(m int) {
+	for _, neighbor := range n.neighbors {
+		delete(neighbor.neighbors, n.point.ID())
+		neighbor.replenish(m)
+	}
 }
 
 type layer[T Embeddable] struct {
@@ -331,4 +371,30 @@ func (h *HNSW[T]) Search(near Embedding, k int) []T {
 	}
 
 	panic("unreachable")
+}
+
+// Len returns the number of nodes in the graph.
+func (h *HNSW[T]) Len() int {
+	if len(h.layers) == 0 {
+		return 0
+	}
+	return h.layers[0].size()
+}
+
+// Delete removes a node from the graph by ID.
+// It tries to preserve the clustering properties of the graph by
+// replenishing the affected neighborhoods.
+func (h *HNSW[T]) Delete(id string) {
+	if len(h.layers) == 0 {
+		return
+	}
+
+	for _, layer := range h.layers {
+		node, ok := layer.nodes[id]
+		if !ok {
+			continue
+		}
+		delete(layer.nodes, id)
+		node.isolate(h.params().M)
+	}
 }
