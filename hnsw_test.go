@@ -18,45 +18,41 @@ func Test_maxLevel(t *testing.T) {
 	require.Equal(t, 11, m)
 }
 
-type basicPoint struct {
-	x float32
-}
+type basicPoint float32
 
 func (n basicPoint) ID() string {
-	return strconv.FormatFloat(float64(n.x), 'f', -1, 32)
+	return strconv.FormatFloat(float64(n), 'f', -1, 32)
 }
 
 func (n basicPoint) Embedding() []float32 {
-	return []float32{float32(n.x)}
+	return []float32{float32(n)}
 }
 
 func Test_layerNode_search(t *testing.T) {
 	entry := &layerNode[basicPoint]{
-		point: basicPoint{x: 0},
+		point: basicPoint(0),
 		neighbors: map[string]*layerNode[basicPoint]{
 			"1": {
-				point: basicPoint{x: 1},
+				point: basicPoint(1),
 			},
 			"2": {
-				point: basicPoint{x: 2},
+				point: basicPoint(2),
 			},
 			"3": {
-				point: basicPoint{
-					x: 3,
-				},
+				point: basicPoint(3),
 				neighbors: map[string]*layerNode[basicPoint]{
 					"3.8": {
-						point: basicPoint{x: 3.8},
+						point: basicPoint(3.8),
 					},
 					"4.3": {
-						point: basicPoint{x: 4.3},
+						point: basicPoint(4.3),
 					},
 				},
 			},
 		},
 	}
 
-	best := entry.search(2, 2, 4, []float32{4}, EuclideanDistance)
+	best := entry.search(2, 4, []float32{4}, EuclideanDistance)
 
 	require.Equal(t, "3.8", best[0].node.point.ID())
 	require.Equal(t, "4.3", best[1].node.point.ID())
@@ -72,7 +68,7 @@ func TestHNSW_AddSearch(t *testing.T) {
 	g.Parameters.Distance = EuclideanDistance
 
 	for i := 0; i < 128; i++ {
-		g.Add(basicPoint{x: float32(i)})
+		g.Add(basicPoint(float32(i)))
 	}
 
 	require.Equal(t, 7, len(g.layers))
@@ -96,13 +92,20 @@ func TestHNSW_AddSearch(t *testing.T) {
 	require.EqualValues(
 		t,
 		[]basicPoint{
-			{x: 64},
-			{x: 65},
-			{x: 62},
-			{x: 63},
+			(64),
+			(65),
+			(66),
+			(63),
 		},
 		nearest,
 	)
+}
+
+func TestHNSW_AddDelete(t *testing.T) {
+	t.Parallel()
+
+	g := HNSW[basicPoint]{}
+	g.Add(1)
 }
 
 func Benchmark_HSNW(b *testing.B) {
@@ -115,7 +118,7 @@ func Benchmark_HSNW(b *testing.B) {
 		b.Run(strconv.Itoa(size), func(b *testing.B) {
 			g := HNSW[basicPoint]{}
 			for i := 0; i < size; i++ {
-				g.Add(basicPoint{x: float32(i)})
+				g.Add(basicPoint(i))
 			}
 			b.ResetTimer()
 

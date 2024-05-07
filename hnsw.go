@@ -4,9 +4,11 @@ import (
 	"fmt"
 	"math"
 	"math/rand"
+	"slices"
 	"time"
 
 	"github.com/coder/hnsw/heap"
+	"golang.org/x/exp/maps"
 )
 
 type Embedding = []float32
@@ -69,8 +71,7 @@ func (s searchCandidate[T]) Less(o searchCandidate[T]) bool {
 // within the same layer.
 func (n *layerNode[T]) search(
 	// k is the number of candidates in the result set.
-	kMin int,
-	kMax int,
+	k int,
 	efSearch int,
 	target Embedding,
 	distance DistanceFunc,
@@ -89,43 +90,48 @@ func (n *layerNode[T]) search(
 		result  = heap.Heap[searchCandidate[T]]{}
 		visited = make(map[string]bool)
 	)
-	result.Init(make([]searchCandidate[T], 0, kMax))
-	result.Push(candidates.Min())
-	for candidates.Len() > 0 {
-		current := candidates.Pop().node
-		if visited[current.point.ID()] {
-			continue
-		}
+	result.Init(make([]searchCandidate[T], 0, k))
 
-		visited[current.point.ID()] = true
-		improved := false
-		for _, neighbor := range current.neighbors {
-			if visited[neighbor.point.ID()] {
+	// Begin with the entry node in the result set.
+	result.Push(candidates.Min())
+	visited[n.point.ID()] = true
+
+	for candidates.Len() > 0 {
+		var (
+			current  = candidates.Pop().node
+			improved = false
+		)
+
+		// We iterate the map in a sorted, deterministic fashion for
+		// tests.
+		neighborIDs := maps.Keys(current.neighbors)
+		slices.Sort(neighborIDs)
+		for _, neighborID := range neighborIDs {
+			neighbor := current.neighbors[neighborID]
+			if visited[neighborID] {
 				continue
 			}
+			visited[neighborID] = true
 
 			dist := distance(neighbor.point.Embedding(), target)
 			improved = improved || dist < result.Min().dist
-			if result.Len() < kMax {
+			if result.Len() < k {
 				result.Push(searchCandidate[T]{node: neighbor, dist: dist})
 			} else if dist < result.Max().dist {
 				result.PopLast()
 				result.Push(searchCandidate[T]{node: neighbor, dist: dist})
 			}
 
+			candidates.Push(searchCandidate[T]{node: neighbor, dist: dist})
 			// Always store candidates if we haven't reached the limit.
-			if candidates.Len() < efSearch {
-				candidates.Push(searchCandidate[T]{node: neighbor, dist: dist})
-			} else if dist < candidates.Max().dist {
-				// Replace the worst candidate with the new neighbor.
+			if candidates.Len() > efSearch {
 				candidates.PopLast()
-				candidates.Push(searchCandidate[T]{node: neighbor, dist: dist})
 			}
 		}
 
 		// Termination condition: no improvement in distance and at least
 		// kMin candidates in the result set.
-		if !improved && result.Len() >= kMin {
+		if !improved && result.Len() >= k {
 			break
 		}
 	}
@@ -202,7 +208,7 @@ type Parameters struct {
 }
 
 var DefaultParameters = Parameters{
-	M:        6,
+	M:        8,
 	Ml:       0.5,
 	Distance: CosineSimilarity,
 	EfSearch: 20,
@@ -308,7 +314,7 @@ func (h *HNSW[T]) Add(n T) {
 			searchPoint = layer.nodes[elevator]
 		}
 
-		nodes := searchPoint.search(m, m, efSearch, n.Embedding(), h.params().Distance)
+		nodes := searchPoint.search(m, efSearch, n.Embedding(), h.params().Distance)
 		if len(nodes) == 0 {
 			// This should never happen because the searchPoint itself
 			// should be in the result set.
@@ -355,14 +361,14 @@ func (h *HNSW[T]) Search(near Embedding, k int) []T {
 
 		// Descending hierarchies
 		if layer > 0 {
-			nodes := searchPoint.search(1, 1, efSearch, near, h.params().Distance)
+			nodes := searchPoint.search(1, efSearch, near, h.params().Distance)
 			elevator = nodes[0].node.point.ID()
 			continue
 		}
 
-		// At the base layer, we can return the results.
-		nodes := searchPoint.search(k, k, efSearch, near, h.params().Distance)
+		nodes := searchPoint.search(k, efSearch, near, h.params().Distance)
 		out := make([]T, 0, len(nodes))
+
 		for _, node := range nodes {
 			out = append(out, node.node.point.(T))
 		}
@@ -397,4 +403,14 @@ func (h *HNSW[T]) Delete(id string) {
 		delete(layer.nodes, id)
 		node.isolate(h.params().M)
 	}
+}
+
+// Lookup returns the node with the given ID.
+func (h *HNSW[T]) Lookup(id string) (T, bool) {
+	var zero T
+	if len(h.layers) == 0 {
+		return zero, false
+	}
+
+	return h.layers[0].nodes[id].point.(T), true
 }
