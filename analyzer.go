@@ -29,3 +29,12 @@ func (a *Analyzer[T]) Connectivity() []float64 {
 
 	return layerConnectivity
 }
+
+// Topography returns the number of nodes in each layer of the graph.
+func (a *Analyzer[T]) Topography() []int {
+	var topography []int
+	for _, layer := range a.Graph.layers {
+		topography = append(topography, len(layer.nodes))
+	}
+	return topography
+}

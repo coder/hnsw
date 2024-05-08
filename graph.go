@@ -32,30 +32,33 @@ type layerNode[T Embeddable] struct {
 
 // addNeighbor adds a o neighbor to the node, replacing the neighbor
 // with the worst distance if the neighbor set is full.
-func (n *layerNode[T]) addNeighbor(o *layerNode[T], m int, dist DistanceFunc) {
+func (n *layerNode[T]) addNeighbor(newNode *layerNode[T], m int, dist DistanceFunc) {
 	if n.neighbors == nil {
 		n.neighbors = make(map[string]*layerNode[T], m)
 	}
-	if len(n.neighbors) < m {
-		n.neighbors[o.point.ID()] = o
+
+	n.neighbors[newNode.point.ID()] = newNode
+	if len(n.neighbors) <= m {
 		return
 	}
 
 	// Find the neighbor with the worst distance.
 	var (
 		worstDist = float32(math.Inf(-1))
-		worstId   string
+		worst     *layerNode[T]
 	)
-	for id, neighbor := range n.neighbors {
+	for _, neighbor := range n.neighbors {
 		d := dist(neighbor.point.Embedding(), n.point.Embedding())
 		if d > worstDist {
 			worstDist = d
-			worstId = id
+			worst = neighbor
 		}
 	}
 
-	// Replace the worst neighbor with the new one.
-	n.neighbors[worstId] = o
+	delete(n.neighbors, worst.point.ID())
+	// Delete backlink from the worst neighbor.
+	delete(worst.neighbors, n.point.ID())
+	worst.replenish(m)
 }
 
 type searchCandidate[T Embeddable] struct {

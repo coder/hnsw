@@ -75,16 +75,20 @@ func TestHNSW_AddSearch(t *testing.T) {
 		g.Add(basicPoint(float32(i)))
 	}
 
-	require.Equal(t, 7, len(g.layers))
-	// Layers should be approximately log2(128) = 7
+	al := Analyzer[basicPoint]{Graph: &g}
 
+	// Layers should be approximately log2(128) = 7
 	// Look for an approximate doubling of the number of nodes in each layer.
-	require.Equal(t, 1, g.layers[5].size())
-	require.Equal(t, 4, g.layers[4].size())
-	require.Equal(t, 11, g.layers[3].size())
-	require.Equal(t, 23, g.layers[2].size())
-	require.Equal(t, 66, g.layers[1].size())
-	require.Equal(t, 127, g.layers[0].size())
+	require.Equal(t, []int{
+		128,
+		67,
+		28,
+		12,
+		6,
+		2,
+		1,
+		1,
+	}, al.Topography())
 
 	nearest := g.Search(
 		[]float32{64.5},
@@ -97,7 +101,7 @@ func TestHNSW_AddSearch(t *testing.T) {
 		[]basicPoint{
 			(64),
 			(65),
-			(66),
+			(62),
 			(63),
 		},
 		nearest,
