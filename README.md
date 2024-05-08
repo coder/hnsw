@@ -5,8 +5,6 @@ can read up about how they work [here](https://arxiv.org/pdf/1603.09320). In ess
 they allow for fast approximate nearest neighbor searches with high-dimensional
 vector data.
 
-They are well-suited for semantic search applications on OpenAI embeddings.
-
 This package can be thought of as an in-memory alternative to your favorite 
 vector database (e.g. Pinecone, Weaviate). Granted, it implements just the essential
 operations:
@@ -21,6 +19,12 @@ operations:
 > **Note**: Complexities are approximate where $n$ is the number of vectors in the graph
 > and $M$ is the maximum number of neighbors each node can have. This [paper](https://arxiv.org/pdf/1603.09320) is a good resource for understanding the effect of
 > the various construction parameters.
+
+Usage:
+
+```go
+hnsw.Graph
+```
 
 ## Performance
 

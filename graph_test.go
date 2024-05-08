@@ -59,23 +59,26 @@ func Test_layerNode_search(t *testing.T) {
 	require.Len(t, best, 2)
 }
 
-func TestHNSW_AddSearch(t *testing.T) {
-	t.Parallel()
-
-	g := Graph[basicPoint]{}
-	g.Parameters = &Parameters{
+func testGraph[T Embeddable]() *Graph[T] {
+	return &Graph[T]{
 		M:        6,
 		Distance: EuclideanDistance,
 		Ml:       0.5,
 		EfSearch: 20,
 		Rng:      rand.New(rand.NewSource(0)),
 	}
+}
+
+func TestHNSW_AddSearch(t *testing.T) {
+	t.Parallel()
+
+	g := testGraph[basicPoint]()
 
 	for i := 0; i < 128; i++ {
 		g.Add(basicPoint(float32(i)))
 	}
 
-	al := Analyzer[basicPoint]{Graph: &g}
+	al := Analyzer[basicPoint]{Graph: g}
 
 	// Layers should be approximately log2(128) = 7
 	// Look for an approximate doubling of the number of nodes in each layer.
@@ -111,13 +114,13 @@ func TestHNSW_AddSearch(t *testing.T) {
 func TestHNSW_AddDelete(t *testing.T) {
 	t.Parallel()
 
-	g := Graph[basicPoint]{}
+	g := testGraph[basicPoint]()
 	for i := 0; i < 128; i++ {
 		g.Add(basicPoint(i))
 	}
 
 	require.Equal(t, 128, g.Len())
-	an := Analyzer[basicPoint]{Graph: &g}
+	an := Analyzer[basicPoint]{Graph: g}
 
 	preDeleteConnectivity := an.Connectivity()
 

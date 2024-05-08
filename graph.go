@@ -191,7 +191,9 @@ func (l *layer[T]) size() int {
 	return len(l.nodes)
 }
 
-type Parameters struct {
+// Graph is a Hierarchical Navigable Small World graph.
+// All public parameters must be set before adding nodes to the graph.
+type Graph[T Embeddable] struct {
 	// M is the maximum number of neighbors to keep for each node.
 	M int
 	// Distance is the distance function used to compare embeddings.
@@ -208,25 +210,22 @@ type Parameters struct {
 	// for reproducibility. Note that deterministic number generation can lead to
 	// degenerate graphs when exposed to adversarial inputs.
 	Rng *rand.Rand
-}
-
-var DefaultParameters = Parameters{
-	M:        8,
-	Ml:       0.5,
-	Distance: CosineSimilarity,
-	EfSearch: 20,
-	Rng:      rand.New(rand.NewSource(time.Now().UnixNano())),
-}
-
-// Graph is a Hierarchical Navigable Small World graph.
-// The zero value is an empty graph with default parameters.
-// Multi-threaded access must be synchronized externally.
-type Graph[T Embeddable] struct {
-	*Parameters
 
 	layers []*layer[T]
 
 	dims int
+}
+
+// NewGraph returns a new graph with default parameters, roughly designed for
+// storing OpenAI embeddings.
+func NewGraph[T Embeddable]() *Graph[T] {
+	return &Graph[T]{
+		M:        8,
+		Ml:       0.25,
+		Distance: CosineSimilarity,
+		EfSearch: 20,
+		Rng:      rand.New(rand.NewSource(time.Now().UnixNano())),
+	}
 }
 
 // maxLevel returns an upper-bound on the number of levels in the graph
@@ -254,12 +253,12 @@ func (h *Graph[T]) randomLevel() int {
 	// by calculating a probably good one from the size of the base layer.
 	max := 1
 	if len(h.layers) > 0 {
-		max = maxLevel(h.params().Ml, h.layers[0].size())
+		max = maxLevel(h.Ml, h.layers[0].size())
 	}
 
 	for level := 0; level < max; level++ {
-		r := h.params().Rng.Float64()
-		if r > h.params().Ml {
+		r := h.Rng.Float64()
+		if r > h.Ml {
 			return level
 		}
 	}
@@ -267,23 +266,18 @@ func (h *Graph[T]) randomLevel() int {
 	return max
 }
 
-func (h *Graph[T]) params() Parameters {
-	if h.Parameters == nil {
-		return DefaultParameters
-	}
-	return *h.Parameters
-}
-
-func (h *Graph[T]) Add(n T) {
-	if h.dims == 0 {
-		h.dims = len(n.Embedding())
-	} else if h.dims != len(n.Embedding()) {
+// Add inserts a node into the graph.
+// If another node with the same ID exists, it is replaced.
+func (g *Graph[T]) Add(n T) {
+	if g.dims == 0 {
+		g.dims = len(n.Embedding())
+	} else if g.dims != len(n.Embedding()) {
 		panic("embedding dimension mismatch")
 	}
-	insertLevel := h.randomLevel()
+	insertLevel := g.randomLevel()
 	// Create layers that don't exist yet.
-	for insertLevel >= len(h.layers) {
-		h.layers = append(h.layers, &layer[T]{})
+	for insertLevel >= len(g.layers) {
+		g.layers = append(g.layers, &layer[T]{})
 	}
 
 	if insertLevel < 0 {
@@ -292,11 +286,11 @@ func (h *Graph[T]) Add(n T) {
 
 	var elevator string
 
-	preLen := h.Len()
+	preLen := g.Len()
 
 	// Insert node at each layer, beginning with the highest.
-	for i := len(h.layers) - 1; i >= 0; i-- {
-		layer := h.layers[i]
+	for i := len(g.layers) - 1; i >= 0; i-- {
+		layer := g.layers[i]
 		newNode := &layerNode[T]{
 			point: n,
 		}
@@ -308,11 +302,6 @@ func (h *Graph[T]) Add(n T) {
 			continue
 		}
 
-		var (
-			m        = h.params().M
-			efSearch = h.params().EfSearch
-		)
-
 		// Now at the highest layer with more than one node, so we can begin
 		// searching for the best way to enter the graph.
 		searchPoint := layer.entry
@@ -323,7 +312,7 @@ func (h *Graph[T]) Add(n T) {
 			searchPoint = layer.nodes[elevator]
 		}
 
-		neighborhood := searchPoint.search(m, efSearch, n.Embedding(), h.params().Distance)
+		neighborhood := searchPoint.search(g.M, g.EfSearch, n.Embedding(), g.Distance)
 		if len(neighborhood) == 0 {
 			// This should never happen because the searchPoint itself
 			// should be in the result set.
@@ -335,20 +324,20 @@ func (h *Graph[T]) Add(n T) {
 
 		if insertLevel >= i {
 			if _, ok := layer.nodes[n.ID()]; ok {
-				panic("must implement deleting nodes that exist")
+				g.Delete(n.ID())
 			}
 			// Insert the new node into the layer.
 			layer.nodes[n.ID()] = newNode
 			for _, node := range neighborhood {
 				// Create a bi-directional edge between the new node and the best node.
-				node.node.addNeighbor(newNode, m, h.params().Distance)
-				newNode.addNeighbor(node.node, m, h.params().Distance)
+				node.node.addNeighbor(newNode, g.M, g.Distance)
+				newNode.addNeighbor(node.node, g.M, g.Distance)
 			}
 		}
 	}
 
 	// Invariant check: the node should have been added to the graph.
-	if h.Len() != preLen+1 {
+	if g.Len() != preLen+1 {
 		panic("node not added")
 	}
 }
@@ -362,7 +351,7 @@ func (h *Graph[T]) Search(near Embedding, k int) []T {
 	}
 
 	var (
-		efSearch = h.params().EfSearch
+		efSearch = h.EfSearch
 
 		elevator string
 	)
@@ -375,12 +364,12 @@ func (h *Graph[T]) Search(near Embedding, k int) []T {
 
 		// Descending hierarchies
 		if layer > 0 {
-			nodes := searchPoint.search(1, efSearch, near, h.params().Distance)
+			nodes := searchPoint.search(1, efSearch, near, h.Distance)
 			elevator = nodes[0].node.point.ID()
 			continue
 		}
 
-		nodes := searchPoint.search(k, efSearch, near, h.params().Distance)
+		nodes := searchPoint.search(k, efSearch, near, h.Distance)
 		out := make([]T, 0, len(nodes))
 
 		for _, node := range nodes {
@@ -415,7 +404,7 @@ func (h *Graph[T]) Delete(id string) {
 			continue
 		}
 		delete(layer.nodes, id)
-		node.isolate(h.params().M)
+		node.isolate(h.M)
 	}
 }
 
