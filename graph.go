@@ -159,7 +159,7 @@ func (n *layerNode[T]) replenish(m int) {
 			if candidate == n {
 				continue
 			}
-			n.addNeighbor(candidate, m, CosineSimilarity)
+			n.addNeighbor(candidate, m, CosineDistance)
 			if len(n.neighbors) >= m {
 				return
 			}
@@ -222,7 +222,7 @@ func NewGraph[T Embeddable]() *Graph[T] {
 	return &Graph[T]{
 		M:        8,
 		Ml:       0.25,
-		Distance: CosineSimilarity,
+		Distance: CosineDistance,
 		EfSearch: 20,
 		Rng:      rand.New(rand.NewSource(time.Now().UnixNano())),
 	}
@@ -266,79 +266,81 @@ func (h *Graph[T]) randomLevel() int {
 	return max
 }
 
-// Add inserts a node into the graph.
+// Add inserts nodes into the graph.
 // If another node with the same ID exists, it is replaced.
-func (g *Graph[T]) Add(n T) {
-	if g.dims == 0 {
-		g.dims = len(n.Embedding())
-	} else if g.dims != len(n.Embedding()) {
-		panic("embedding dimension mismatch")
-	}
-	insertLevel := g.randomLevel()
-	// Create layers that don't exist yet.
-	for insertLevel >= len(g.layers) {
-		g.layers = append(g.layers, &layer[T]{})
-	}
-
-	if insertLevel < 0 {
-		panic("invalid level")
-	}
-
-	var elevator string
-
-	preLen := g.Len()
-
-	// Insert node at each layer, beginning with the highest.
-	for i := len(g.layers) - 1; i >= 0; i-- {
-		layer := g.layers[i]
-		newNode := &layerNode[T]{
-			point: n,
+func (g *Graph[T]) Add(nodes ...T) {
+	for _, n := range nodes {
+		if g.dims == 0 {
+			g.dims = len(n.Embedding())
+		} else if g.dims != len(n.Embedding()) {
+			panic("embedding dimension mismatch")
+		}
+		insertLevel := g.randomLevel()
+		// Create layers that don't exist yet.
+		for insertLevel >= len(g.layers) {
+			g.layers = append(g.layers, &layer[T]{})
 		}
 
-		// Insert the new node into the layer.
-		if layer.entry == nil {
-			layer.entry = newNode
-			layer.nodes = map[string]*layerNode[T]{n.ID(): newNode}
-			continue
+		if insertLevel < 0 {
+			panic("invalid level")
 		}
 
-		// Now at the highest layer with more than one node, so we can begin
-		// searching for the best way to enter the graph.
-		searchPoint := layer.entry
+		var elevator string
 
-		// On subsequent layers, we use the elevator node to enter the graph
-		// at the best point.
-		if elevator != "" {
-			searchPoint = layer.nodes[elevator]
-		}
+		preLen := g.Len()
 
-		neighborhood := searchPoint.search(g.M, g.EfSearch, n.Embedding(), g.Distance)
-		if len(neighborhood) == 0 {
-			// This should never happen because the searchPoint itself
-			// should be in the result set.
-			panic("no nodes found")
-		}
-
-		// Re-set the elevator node for the next layer.
-		elevator = neighborhood[0].node.point.ID()
-
-		if insertLevel >= i {
-			if _, ok := layer.nodes[n.ID()]; ok {
-				g.Delete(n.ID())
+		// Insert node at each layer, beginning with the highest.
+		for i := len(g.layers) - 1; i >= 0; i-- {
+			layer := g.layers[i]
+			newNode := &layerNode[T]{
+				point: n,
 			}
+
 			// Insert the new node into the layer.
-			layer.nodes[n.ID()] = newNode
-			for _, node := range neighborhood {
-				// Create a bi-directional edge between the new node and the best node.
-				node.node.addNeighbor(newNode, g.M, g.Distance)
-				newNode.addNeighbor(node.node, g.M, g.Distance)
+			if layer.entry == nil {
+				layer.entry = newNode
+				layer.nodes = map[string]*layerNode[T]{n.ID(): newNode}
+				continue
+			}
+
+			// Now at the highest layer with more than one node, so we can begin
+			// searching for the best way to enter the graph.
+			searchPoint := layer.entry
+
+			// On subsequent layers, we use the elevator node to enter the graph
+			// at the best point.
+			if elevator != "" {
+				searchPoint = layer.nodes[elevator]
+			}
+
+			neighborhood := searchPoint.search(g.M, g.EfSearch, n.Embedding(), g.Distance)
+			if len(neighborhood) == 0 {
+				// This should never happen because the searchPoint itself
+				// should be in the result set.
+				panic("no nodes found")
+			}
+
+			// Re-set the elevator node for the next layer.
+			elevator = neighborhood[0].node.point.ID()
+
+			if insertLevel >= i {
+				if _, ok := layer.nodes[n.ID()]; ok {
+					g.Delete(n.ID())
+				}
+				// Insert the new node into the layer.
+				layer.nodes[n.ID()] = newNode
+				for _, node := range neighborhood {
+					// Create a bi-directional edge between the new node and the best node.
+					node.node.addNeighbor(newNode, g.M, g.Distance)
+					newNode.addNeighbor(node.node, g.M, g.Distance)
+				}
 			}
 		}
-	}
 
-	// Invariant check: the node should have been added to the graph.
-	if g.Len() != preLen+1 {
-		panic("node not added")
+		// Invariant check: the node should have been added to the graph.
+		if g.Len() != preLen+1 {
+			panic("node not added")
+		}
 	}
 }
 

@@ -208,3 +208,25 @@ func Benchmark_HNSW_1536(b *testing.B) {
 		}
 	})
 }
+
+func TestHNSW_DefaultCosine(t *testing.T) {
+	g := NewGraph[Vector]()
+	g.Add(
+		MakeVector("1", []float32{1, 1}),
+		MakeVector("2", []float32{0, 1}),
+		MakeVector("3", []float32{1, -1}),
+	)
+
+	neighbors := g.Search(
+		[]float32{0.5, 0.5},
+		1,
+	)
+
+	require.Equal(
+		t,
+		[]Vector{
+			MakeVector("1", []float32{1, 1}),
+		},
+		neighbors,
+	)
+}

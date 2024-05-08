@@ -11,3 +11,21 @@ func TestEuclideanDistance(t *testing.T) {
 	b := []float32{4, 5, 6}
 	require.Equal(t, float32(5.196152), EuclideanDistance(a, b))
 }
+
+func TestCosineSimilarity(t *testing.T) {
+	var a, b []float32
+	// Same magnitude, same direction.
+	a = []float32{1, 1, 1}
+	b = []float32{0.8, 0.8, 0.8}
+	require.InDelta(t, 0, CosineDistance(a, b), 0.000001)
+
+	// Perpendicular vectors.
+	a = []float32{1, 0}
+	b = []float32{0, 1}
+	require.InDelta(t, 1, CosineDistance(a, b), 0.000001)
+
+	// Equivalent vectors.
+	a = []float32{1, 0}
+	b = []float32{1, 0}
+	require.InDelta(t, 0, CosineDistance(a, b), 0.000001)
+}

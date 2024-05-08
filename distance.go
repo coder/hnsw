@@ -5,8 +5,8 @@ import "math"
 // DistanceFunc is a function that computes the distance between two vectors.
 type DistanceFunc func(a, b []float32) float32
 
-// CosineSimilarity computes the cosine similarity between two vectors.
-func CosineSimilarity(a, b []float32) float32 {
+// CosineDistance computes the cosine distance between two vectors.
+func CosineDistance(a, b []float32) float32 {
 	var dotProduct float32 = 0
 	var normA float32 = 0
 	var normB float32 = 0
@@ -21,7 +21,8 @@ func CosineSimilarity(a, b []float32) float32 {
 		return 0 // Cosine similarity is not defined when one vector is zero.
 	}
 
-	return dotProduct / (float32(math.Sqrt(float64(normA))) * float32(math.Sqrt(float64(normB))))
+	sim := dotProduct / (float32(math.Sqrt(float64(normA))) * float32(math.Sqrt(float64(normB))))
+	return 1 - sim
 }
 
 // EuclideanDistance computes the Euclidean distance between two vectors.
