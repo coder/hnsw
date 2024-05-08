@@ -16,7 +16,7 @@ operations:
 | Insert    | $O(log(n))$           | Insert a vector into the graph               |
 | Delete    | $O(M^2 \cdot log(n))$ | Delete a vector from the graph               |
 | Search    | $O(log(n))$           | Search for the nearest neighbors of a vector |
-| Lookup    | $O(1)$                | Retrieve an object by ID                     |
+| Lookup    | $O(1)$                | Retrieve a vector by ID                      |
 
 > [!NOTE]
 > Complexities are approximate where $n$ is the number of vectors in the graph
@@ -25,7 +25,7 @@ operations:
 
 ## Usage
 
-```go
+```
 go get github.com/coder/hnsw@main
 ```
 
