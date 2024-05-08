@@ -8,7 +8,7 @@ they allow for fast approximate nearest neighbor searches with high-dimensional
 vector data.
 
 This package can be thought of as an in-memory alternative to your favorite 
-vector database (e.g. Pinecone, Weaviate). Granted, it implements just the essential
+vector database (e.g. Pinecone, Weaviate). It implements just the essential
 operations:
 
 | Operation | Complexity            | Description                                  |
@@ -22,7 +22,11 @@ operations:
 > and $M$ is the maximum number of neighbors each node can have. This [paper](https://arxiv.org/pdf/1603.09320) is a good resource for understanding the effect of
 > the various construction parameters.
 
-Usage:
+## Usage
+
+```go
+go get github.com/coder/hnsw@main
+```
 
 ```go
 g := hnsw.NewGraph[hnsw.Vector]()
@@ -44,7 +48,16 @@ fmt.Printf("best friend: %v\n", neighbors[0].Embedding())
 
 By and large the greatest effect you can have on the performance of the graph
 is reducing the dimensionality of your data. At 1536 dimensions (OpenAI default),
-70% of the query process under default parameters is spent in the distance function. 
+70% of the query process under default parameters is spent in the distance function.
+
+If you're struggling with slowness / latency, consider:
+* Reducing dimensionality
+* Increasing $M$
+
+And, if you're struggling with excess memory usage, consider:
+* Reducing $M$ a.k.a `Graph.M` (the maximum number of neighbors each node can have)
+* Reducing $M_l$ a.k.a `Graph.Ml` (the level generation parameter)
+
 
 ## Roadmap
 
