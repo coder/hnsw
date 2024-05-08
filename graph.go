@@ -344,6 +344,7 @@ func (g *Graph[T]) Add(nodes ...T) {
 	}
 }
 
+// Search finds the k nearest neighbors to the target node.
 func (h *Graph[T]) Search(near Embedding, k int) []T {
 	if len(near) != h.dims {
 		panic(fmt.Sprint("embedding dimension mismatch: ", len(near), " != ", h.dims))
