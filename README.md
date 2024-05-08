@@ -18,7 +18,8 @@ operations:
 | Search    | $O(log(n))$           | Search for the nearest neighbors of a vector |
 | Lookup    | $O(1)$                | Retrieve an object by ID                     |
 
-> **Note**: Complexities are approximate where $n$ is the number of vectors in the graph
+> [!NOTE]
+> Complexities are approximate where $n$ is the number of vectors in the graph
 > and $M$ is the maximum number of neighbors each node can have. This [paper](https://arxiv.org/pdf/1603.09320) is a good resource for understanding the effect of
 > the various construction parameters.
 
