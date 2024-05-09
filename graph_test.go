@@ -59,7 +59,7 @@ func Test_layerNode_search(t *testing.T) {
 	require.Len(t, best, 2)
 }
 
-func testGraph[T Embeddable]() *Graph[T] {
+func newTestGraph[T Embeddable]() *Graph[T] {
 	return &Graph[T]{
 		M:        6,
 		Distance: EuclideanDistance,
@@ -69,10 +69,10 @@ func testGraph[T Embeddable]() *Graph[T] {
 	}
 }
 
-func TestHNSW_AddSearch(t *testing.T) {
+func TestGraph_AddSearch(t *testing.T) {
 	t.Parallel()
 
-	g := testGraph[basicPoint]()
+	g := newTestGraph[basicPoint]()
 
 	for i := 0; i < 128; i++ {
 		g.Add(basicPoint(float32(i)))
@@ -111,10 +111,10 @@ func TestHNSW_AddSearch(t *testing.T) {
 	)
 }
 
-func TestHNSW_AddDelete(t *testing.T) {
+func TestGraph_AddDelete(t *testing.T) {
 	t.Parallel()
 
-	g := testGraph[basicPoint]()
+	g := newTestGraph[basicPoint]()
 	for i := 0; i < 128; i++ {
 		g.Add(basicPoint(i))
 	}
@@ -215,7 +215,7 @@ func Benchmark_HNSW_1536(b *testing.B) {
 	})
 }
 
-func TestHNSW_DefaultCosine(t *testing.T) {
+func TestGraph_DefaultCosine(t *testing.T) {
 	g := NewGraph[Vector]()
 	g.Add(
 		MakeVector("1", []float32{1, 1}),

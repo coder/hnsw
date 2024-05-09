@@ -22,6 +22,7 @@ type Embeddable interface {
 	Embedding() Embedding
 }
 
+// layerNode is a node in a layer of the graph.
 type layerNode[T Embeddable] struct {
 	point Embeddable
 	// neighbors is map of neighbor IDs to neighbor nodes.
@@ -178,10 +179,23 @@ func (n *layerNode[T]) isolate(m int) {
 
 type layer[T Embeddable] struct {
 	// nodes is a map of node IDs to nodes.
-	// all nodes in a higher layer are also in the lower layers, an essential
+	// All nodes in a higher layer are also in the lower layers, an essential
 	// property of the graph.
 	nodes map[string]*layerNode[T]
-	entry *layerNode[T]
+}
+
+// entry returns the entry node of the layer.
+// It doesn't matter which node is returned, even that the
+// entry node is consistent, so we just return the first node
+// in the map to avoid tracking extra state.
+func (l *layer[T]) entry() *layerNode[T] {
+	if l == nil {
+		return nil
+	}
+	for _, node := range l.nodes {
+		return node
+	}
+	return nil
 }
 
 func (l *layer[T]) size() int {
@@ -211,6 +225,7 @@ type Graph[T Embeddable] struct {
 	// degenerate graphs when exposed to adversarial inputs.
 	Rng *rand.Rand
 
+	// layers is a slice of layers in the graph.
 	layers []*layer[T]
 }
 
@@ -268,7 +283,7 @@ func (g *Graph[T]) assertDims(n Embedding) {
 	if len(g.layers) == 0 {
 		return
 	}
-	hasDims := len(g.layers[0].entry.point.Embedding())
+	hasDims := len(g.layers[0].entry().point.Embedding())
 	if hasDims != len(n) {
 		panic(fmt.Sprint("embedding dimension mismatch: ", hasDims, " != ", len(n)))
 	}
@@ -301,15 +316,14 @@ func (g *Graph[T]) Add(nodes ...T) {
 			}
 
 			// Insert the new node into the layer.
-			if layer.entry == nil {
-				layer.entry = newNode
+			if layer.entry() == nil {
 				layer.nodes = map[string]*layerNode[T]{n.ID(): newNode}
 				continue
 			}
 
 			// Now at the highest layer with more than one node, so we can begin
 			// searching for the best way to enter the graph.
-			searchPoint := layer.entry
+			searchPoint := layer.entry()
 
 			// On subsequent layers, we use the elevator node to enter the graph
 			// at the best point.
@@ -362,7 +376,7 @@ func (h *Graph[T]) Search(near Embedding, k int) []T {
 	)
 
 	for layer := len(h.layers) - 1; layer >= 0; layer-- {
-		searchPoint := h.layers[layer].entry
+		searchPoint := h.layers[layer].entry()
 		if elevator != "" {
 			searchPoint = h.layers[layer].nodes[elevator]
 		}
