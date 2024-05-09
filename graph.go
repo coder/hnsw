@@ -212,8 +212,6 @@ type Graph[T Embeddable] struct {
 	Rng *rand.Rand
 
 	layers []*layer[T]
-
-	dims int
 }
 
 // NewGraph returns a new graph with default parameters, roughly designed for
@@ -266,15 +264,21 @@ func (h *Graph[T]) randomLevel() int {
 	return max
 }
 
+func (g *Graph[T]) assertDims(n Embedding) {
+	if len(g.layers) == 0 {
+		return
+	}
+	hasDims := len(g.layers[0].entry.point.Embedding())
+	if hasDims != len(n) {
+		panic(fmt.Sprint("embedding dimension mismatch: ", hasDims, " != ", len(n)))
+	}
+}
+
 // Add inserts nodes into the graph.
 // If another node with the same ID exists, it is replaced.
 func (g *Graph[T]) Add(nodes ...T) {
 	for _, n := range nodes {
-		if g.dims == 0 {
-			g.dims = len(n.Embedding())
-		} else if g.dims != len(n.Embedding()) {
-			panic("embedding dimension mismatch")
-		}
+		g.assertDims(n.Embedding())
 		insertLevel := g.randomLevel()
 		// Create layers that don't exist yet.
 		for insertLevel >= len(g.layers) {
@@ -346,9 +350,7 @@ func (g *Graph[T]) Add(nodes ...T) {
 
 // Search finds the k nearest neighbors to the target node.
 func (h *Graph[T]) Search(near Embedding, k int) []T {
-	if len(near) != h.dims {
-		panic(fmt.Sprint("embedding dimension mismatch: ", len(near), " != ", h.dims))
-	}
+	h.assertDims(near)
 	if len(h.layers) == 0 {
 		return nil
 	}
@@ -396,11 +398,12 @@ func (h *Graph[T]) Len() int {
 // Delete removes a node from the graph by ID.
 // It tries to preserve the clustering properties of the graph by
 // replenishing the affected neighborhoods.
-func (h *Graph[T]) Delete(id string) {
+func (h *Graph[T]) Delete(id string) bool {
 	if len(h.layers) == 0 {
-		return
+		return false
 	}
 
+	var deleted bool
 	for _, layer := range h.layers {
 		node, ok := layer.nodes[id]
 		if !ok {
@@ -408,7 +411,10 @@ func (h *Graph[T]) Delete(id string) {
 		}
 		delete(layer.nodes, id)
 		node.isolate(h.M)
+		deleted = true
 	}
+
+	return deleted
 }
 
 // Lookup returns the node with the given ID.

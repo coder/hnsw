@@ -126,7 +126,8 @@ func TestHNSW_AddDelete(t *testing.T) {
 
 	// Delete every even node.
 	for i := 0; i < 128; i += 2 {
-		g.Delete(basicPoint(i).ID())
+		ok := g.Delete(basicPoint(i).ID())
+		require.True(t, ok)
 	}
 
 	require.Equal(t, 64, g.Len())
@@ -138,6 +139,11 @@ func TestHNSW_AddDelete(t *testing.T) {
 		t, preDeleteConnectivity[0],
 		postDeleteConnectivity[0],
 	)
+
+	t.Run("DeleteNotFound", func(t *testing.T) {
+		ok := g.Delete("not found")
+		require.False(t, ok)
+	})
 }
 
 func Benchmark_HSNW(b *testing.B) {
