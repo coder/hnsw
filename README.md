@@ -62,4 +62,4 @@ And, if you're struggling with excess memory usage, consider:
 
 ## Roadmap
 
-- [ ] Implement durable, file-system backend
+- [ ] [#3](https://github.com/coder/hnsw/issues/3) Persistence / serialization
