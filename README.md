@@ -3,7 +3,7 @@
 
 
 Package `hnsw` implements Hierarchical Navigable Small World graphs in Go. You
-can read up about how they work [here](https://arxiv.org/pdf/1603.09320). In essence,
+can read up about how they work [here](https://www.pinecone.io/learn/series/faiss/hnsw/). In essence,
 they allow for fast approximate nearest neighbor searches with high-dimensional
 vector data.
 
