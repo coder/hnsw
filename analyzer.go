@@ -15,16 +15,16 @@ func (a *Analyzer[T]) Height() int {
 func (a *Analyzer[T]) Connectivity() []float64 {
 	var layerConnectivity []float64
 	for _, layer := range a.Graph.layers {
-		if len(layer.nodes) == 0 {
+		if len(layer.Nodes) == 0 {
 			continue
 		}
 
 		var sum float64
-		for _, node := range layer.nodes {
-			sum += float64(len(node.neighbors))
+		for _, node := range layer.Nodes {
+			sum += float64(len(node.Neighbors))
 		}
 
-		layerConnectivity = append(layerConnectivity, sum/float64(len(layer.nodes)))
+		layerConnectivity = append(layerConnectivity, sum/float64(len(layer.Nodes)))
 	}
 
 	return layerConnectivity
@@ -34,7 +34,7 @@ func (a *Analyzer[T]) Connectivity() []float64 {
 func (a *Analyzer[T]) Topography() []int {
 	var topography []int
 	for _, layer := range a.Graph.layers {
-		topography = append(topography, len(layer.nodes))
+		topography = append(topography, len(layer.Nodes))
 	}
 	return topography
 }

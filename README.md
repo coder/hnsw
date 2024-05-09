@@ -57,7 +57,7 @@ If you're struggling with slowness / latency, consider:
 
 And, if you're struggling with excess memory usage, consider:
 * Reducing $M$ a.k.a `Graph.M` (the maximum number of neighbors each node can have)
-* Reducing $M_l$ a.k.a `Graph.Ml` (the level generation parameter)
+* Reducing $m_L$ a.k.a `Graph.Ml` (the level generation parameter)
 
 
 ## Roadmap
