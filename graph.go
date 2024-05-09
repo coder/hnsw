@@ -415,7 +415,7 @@ func (h *Graph[T]) Len() int {
 
 // Delete removes a node from the graph by ID.
 // It tries to preserve the clustering properties of the graph by
-// replenishing the affected neighborhoods.
+// replenishing connectivity in the affected neighborhoods.
 func (h *Graph[T]) Delete(id string) bool {
 	if len(h.layers) == 0 {
 		return false
