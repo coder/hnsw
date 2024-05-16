@@ -212,22 +212,26 @@ func (l *layer[T]) size() int {
 // Graph is a Hierarchical Navigable Small World graph.
 // All public parameters must be set before adding nodes to the graph.
 type Graph[T Embeddable] struct {
-	// M is the maximum number of neighbors to keep for each node.
-	M int
 	// Distance is the distance function used to compare embeddings.
 	Distance DistanceFunc
-
-	// Ml is the level generation factor. E.g. 1 / log(Ml) is the probability
-	// of adding a node to a level.
-	Ml float64
-
-	// EfSearch is the number of nodes to consider in the search phase.
-	EfSearch int
 
 	// Rng is used for level generation. It may be set to a deterministic value
 	// for reproducibility. Note that deterministic number generation can lead to
 	// degenerate graphs when exposed to adversarial inputs.
 	Rng *rand.Rand
+
+	// M is the maximum number of neighbors to keep for each node.
+	// A good default for OpenAI embeddings is 16.
+	M int
+
+	// Ml is the level generation factor.
+	// E.g., for Ml = 0.25, each layer is 1/4 the size of the previous layer.
+	Ml float64
+
+	// EfSearch is the number of nodes to consider in the search phase.
+	// 20 is a reasonable default. Higher values improve search accuracy at
+	// the expense of memory.
+	EfSearch int
 
 	// layers is a slice of layers in the graph.
 	layers []*layer[T]
@@ -237,7 +241,7 @@ type Graph[T Embeddable] struct {
 // storing OpenAI embeddings.
 func NewGraph[T Embeddable]() *Graph[T] {
 	return &Graph[T]{
-		M:        8,
+		M:        16,
 		Ml:       0.25,
 		Distance: CosineDistance,
 		EfSearch: 20,
@@ -366,7 +370,7 @@ func (g *Graph[T]) Add(nodes ...T) {
 	}
 }
 
-// Search finds the k nearest neighbors to the target node.
+// Search finds the k nearest neighbors from the target node.
 func (h *Graph[T]) Search(near Embedding, k int) []T {
 	h.assertDims(near)
 	if len(h.layers) == 0 {
@@ -415,7 +419,7 @@ func (h *Graph[T]) Len() int {
 
 // Delete removes a node from the graph by ID.
 // It tries to preserve the clustering properties of the graph by
-// replenishing the affected neighborhoods.
+// replenishing connectivity in the affected neighborhoods.
 func (h *Graph[T]) Delete(id string) bool {
 	if len(h.layers) == 0 {
 		return false

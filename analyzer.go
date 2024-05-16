@@ -1,7 +1,9 @@
 package hnsw
 
 // Analyzer is a struct that holds a graph and provides
-// methods for analyzing it.
+// methods for analyzing it. It offers no compatibility guarantee
+// as the methods of measuring the graph's health with change
+// with the implementation.
 type Analyzer[T Embeddable] struct {
 	Graph *Graph[T]
 }

@@ -1,5 +1,5 @@
 # hnsw
-[![GoDoc](https://godoc.org/github.com/golang/gddo?status.svg)](https://godoc.org/github.com/coder/hnsw)
+[![GoDoc](https://godoc.org/github.com/golang/gddo?status.svg)](https://pkg.go.dev/github.com/coder/hnsw@main?utm_source=godoc)
 
 
 Package `hnsw` implements Hierarchical Navigable Small World graphs in Go. You
