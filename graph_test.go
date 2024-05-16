@@ -1,7 +1,6 @@
 package hnsw
 
 import (
-	"bytes"
 	"math/rand"
 	"strconv"
 	"testing"
@@ -32,7 +31,7 @@ func (n basicPoint) Embedding() []float32 {
 func Test_layerNode_search(t *testing.T) {
 	entry := &layerNode[basicPoint]{
 		Point: basicPoint(0),
-		Neighbors: map[string]*layerNode[basicPoint]{
+		neighbors: map[string]*layerNode[basicPoint]{
 			"1": {
 				Point: basicPoint(1),
 			},
@@ -41,7 +40,7 @@ func Test_layerNode_search(t *testing.T) {
 			},
 			"3": {
 				Point: basicPoint(3),
-				Neighbors: map[string]*layerNode[basicPoint]{
+				neighbors: map[string]*layerNode[basicPoint]{
 					"3.8": {
 						Point: basicPoint(3.8),
 					},
@@ -236,21 +235,4 @@ func TestGraph_DefaultCosine(t *testing.T) {
 		},
 		neighbors,
 	)
-}
-
-func TestGraph_ExportImport(t *testing.T) {
-	g := newTestGraph[Vector]()
-	for i := 0; i < 128; i++ {
-		g.Add(MakeVector(strconv.Itoa(i), []float32{float32(i)}))
-	}
-
-	buf := &bytes.Buffer{}
-	err := g.Export(buf)
-	require.NoError(t, err)
-
-	g2 := newTestGraph[Vector]()
-	err = g2.Import(buf)
-	require.NoError(t, err)
-
-	require.Equal(t, g.Len(), g2.Len())
 }

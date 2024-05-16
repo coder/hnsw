@@ -30,7 +30,7 @@ func (v Vector) Embedding() []float32 {
 	return v.embedding
 }
 
-func (v *Vector) GobEncode() ([]byte, error) {
+func (v Vector) GobEncode() ([]byte, error) {
 	var buf bytes.Buffer
 	buf.Grow(8 + len(v.id) + 4*len(v.embedding))
 	enc := gob.NewEncoder(&buf)

@@ -1,9 +1,7 @@
 package hnsw
 
 import (
-	"encoding/json"
 	"fmt"
-	"io"
 	"math"
 	"math/rand"
 	"slices"
@@ -27,21 +25,21 @@ type Embeddable interface {
 // layerNode is a node in a layer of the graph.
 type layerNode[T Embeddable] struct {
 	Point Embeddable
-	// Neighbors is map of neighbor IDs to neighbor nodes.
+	// neighbors is map of neighbor IDs to neighbor nodes.
 	// It is a map and not a slice to allow for efficient deletes, esp.
 	// when M is high.
-	Neighbors map[string]*layerNode[T]
+	neighbors map[string]*layerNode[T]
 }
 
 // addNeighbor adds a o neighbor to the node, replacing the neighbor
 // with the worst distance if the neighbor set is full.
 func (n *layerNode[T]) addNeighbor(newNode *layerNode[T], m int, dist DistanceFunc) {
-	if n.Neighbors == nil {
-		n.Neighbors = make(map[string]*layerNode[T], m)
+	if n.neighbors == nil {
+		n.neighbors = make(map[string]*layerNode[T], m)
 	}
 
-	n.Neighbors[newNode.Point.ID()] = newNode
-	if len(n.Neighbors) <= m {
+	n.neighbors[newNode.Point.ID()] = newNode
+	if len(n.neighbors) <= m {
 		return
 	}
 
@@ -50,7 +48,7 @@ func (n *layerNode[T]) addNeighbor(newNode *layerNode[T], m int, dist DistanceFu
 		worstDist = float32(math.Inf(-1))
 		worst     *layerNode[T]
 	)
-	for _, neighbor := range n.Neighbors {
+	for _, neighbor := range n.neighbors {
 		d := dist(neighbor.Point.Embedding(), n.Point.Embedding())
 		if d > worstDist {
 			worstDist = d
@@ -58,9 +56,9 @@ func (n *layerNode[T]) addNeighbor(newNode *layerNode[T], m int, dist DistanceFu
 		}
 	}
 
-	delete(n.Neighbors, worst.Point.ID())
+	delete(n.neighbors, worst.Point.ID())
 	// Delete backlink from the worst neighbor.
-	delete(worst.Neighbors, n.Point.ID())
+	delete(worst.neighbors, n.Point.ID())
 	worst.replenish(m)
 }
 
@@ -110,10 +108,10 @@ func (n *layerNode[T]) search(
 
 		// We iterate the map in a sorted, deterministic fashion for
 		// tests.
-		neighborIDs := maps.Keys(current.Neighbors)
+		neighborIDs := maps.Keys(current.neighbors)
 		slices.Sort(neighborIDs)
 		for _, neighborID := range neighborIDs {
-			neighbor := current.Neighbors[neighborID]
+			neighbor := current.neighbors[neighborID]
 			if visited[neighborID] {
 				continue
 			}
@@ -146,16 +144,16 @@ func (n *layerNode[T]) search(
 }
 
 func (n *layerNode[T]) replenish(m int) {
-	if len(n.Neighbors) >= m {
+	if len(n.neighbors) >= m {
 		return
 	}
 
 	// Restore connectivity by adding new neighbors.
 	// This is a naive implementation that could be improved by
 	// using a priority queue to find the best candidates.
-	for _, neighbor := range n.Neighbors {
-		for id, candidate := range neighbor.Neighbors {
-			if _, ok := n.Neighbors[id]; ok {
+	for _, neighbor := range n.neighbors {
+		for id, candidate := range neighbor.neighbors {
+			if _, ok := n.neighbors[id]; ok {
 				// do not add duplicates
 				continue
 			}
@@ -163,7 +161,7 @@ func (n *layerNode[T]) replenish(m int) {
 				continue
 			}
 			n.addNeighbor(candidate, m, CosineDistance)
-			if len(n.Neighbors) >= m {
+			if len(n.neighbors) >= m {
 				return
 			}
 		}
@@ -173,8 +171,8 @@ func (n *layerNode[T]) replenish(m int) {
 // isolates remove the node from the graph by removing all connections
 // to neighbors.
 func (n *layerNode[T]) isolate(m int) {
-	for _, neighbor := range n.Neighbors {
-		delete(neighbor.Neighbors, n.Point.ID())
+	for _, neighbor := range n.neighbors {
+		delete(neighbor.neighbors, n.Point.ID())
 		neighbor.replenish(m)
 	}
 }
@@ -447,21 +445,4 @@ func (h *Graph[T]) Lookup(id string) (T, bool) {
 	}
 
 	return h.layers[0].Nodes[id].Point.(T), true
-}
-
-// Export writes the graph to a writer.
-// It does not export the graph's parameters, just the layers.
-func (h *Graph[T]) Export(w io.Writer) error {
-	enc := json.NewEncoder(w)
-	return enc.Encode(h.layers)
-}
-
-// Import reads the graph from a reader.
-// It does not import the graph's parameters, just the layers.
-// The parameters do not have to be equal to the parameters
-// of the exported graph.
-// The graph will eventually converge onto the new parameters.
-func (h *Graph[T]) Import(r io.Reader) error {
-	dec := json.NewDecoder(r)
-	return dec.Decode(&h.layers)
 }
