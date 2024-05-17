@@ -2,6 +2,7 @@ package hnsw
 
 import (
 	"bytes"
+	"io"
 	"math/rand"
 	"strconv"
 	"testing"
@@ -143,4 +144,40 @@ func TestSavedGraph(t *testing.T) {
 	require.NoError(t, err)
 
 	requireGraphApproxEquals(t, g1.Graph, g2.Graph)
+}
+
+const benchGraphSize = 100
+
+func BenchmarkGraph_Import(b *testing.B) {
+	b.ReportAllocs()
+	g := newTestGraph[Vector]()
+	for i := 0; i < benchGraphSize; i++ {
+		g.Add(MakeVector(strconv.Itoa(i), randFloats(100)))
+	}
+
+	buf := &bytes.Buffer{}
+	err := g.Export(buf)
+	require.NoError(b, err)
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		b.StopTimer()
+		rdr := bytes.NewReader(buf.Bytes())
+		g := newTestGraph[Vector]()
+		b.StartTimer()
+		g.Import(rdr)
+	}
+}
+
+func BenchmarkGraph_Export(b *testing.B) {
+	b.ReportAllocs()
+	g := newTestGraph[Vector]()
+	for i := 0; i < benchGraphSize; i++ {
+		g.Add(MakeVector(strconv.Itoa(i), randFloats(256)))
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		g.Export(io.Discard)
+	}
 }
