@@ -90,6 +90,32 @@ func requireGraphApproxEquals[T Embeddable](t *testing.T, g1, g2 *Graph[T]) {
 		a1.Connectivity(),
 		a2.Connectivity(),
 	)
+
+	require.NotNil(t, g1.Distance)
+	require.NotNil(t, g2.Distance)
+	require.Equal(
+		t,
+		g1.Distance([]float32{0.5}, []float32{1}),
+		g2.Distance([]float32{0.5}, []float32{1}),
+	)
+
+	require.Equal(t,
+		g1.M,
+		g2.M,
+	)
+
+	require.Equal(t,
+		g1.Ml,
+		g2.Ml,
+	)
+
+	require.Equal(t,
+		g1.EfSearch,
+		g2.EfSearch,
+	)
+
+	require.NotNil(t, g1.Rng)
+	require.NotNil(t, g2.Rng)
 }
 
 func TestGraph_ExportImport(t *testing.T) {
@@ -104,7 +130,9 @@ func TestGraph_ExportImport(t *testing.T) {
 	err := g1.Export(buf)
 	require.NoError(t, err)
 
-	g2 := newTestGraph[Vector]()
+	// Don't use newTestGraph to ensure parameters
+	// are imported.
+	g2 := &Graph[Vector]{}
 	err = g2.Import(buf)
 	require.NoError(t, err)
 

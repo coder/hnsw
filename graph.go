@@ -235,6 +235,10 @@ type Graph[T Embeddable] struct {
 	layers []*layer[T]
 }
 
+func defaultRand() *rand.Rand {
+	return rand.New(rand.NewSource(time.Now().UnixNano()))
+}
+
 // NewGraph returns a new graph with default parameters, roughly designed for
 // storing OpenAI embeddings.
 func NewGraph[T Embeddable]() *Graph[T] {
@@ -243,7 +247,7 @@ func NewGraph[T Embeddable]() *Graph[T] {
 		Ml:       0.25,
 		Distance: CosineDistance,
 		EfSearch: 20,
-		Rng:      rand.New(rand.NewSource(time.Now().UnixNano())),
+		Rng:      defaultRand(),
 	}
 }
 

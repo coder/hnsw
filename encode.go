@@ -115,12 +115,17 @@ const encodingVersion = 1
 // T must be encodable by encoding/binary or implement io.WriterTo.
 // The underlying value type must be encodable with Gob.
 func (h *Graph[T]) Export(w io.Writer) error {
+	distFuncName, ok := distanceFuncToName(h.Distance)
+	if !ok {
+		return fmt.Errorf("distance function %v must be registered with RegisterDistanceFunc", h.Distance)
+	}
 	_, err := multiBinaryWrite(
 		w,
 		encodingVersion,
 		h.M,
 		h.Ml,
 		h.EfSearch,
+		distFuncName,
 	)
 	if err != nil {
 		return fmt.Errorf("encode parameters: %w", err)
@@ -161,10 +166,24 @@ func (h *Graph[T]) Export(w io.Writer) error {
 // The parameters do not have to be equal to the parameters
 // of the exported graph. The graph will converge onto the new parameters.
 func (h *Graph[T]) Import(r io.Reader) error {
-	var version int
-	_, err := multiBinaryRead(r, &version, &h.M, &h.Ml, &h.EfSearch)
+	var (
+		version int
+		dist    string
+	)
+	_, err := multiBinaryRead(r, &version, &h.M, &h.Ml, &h.EfSearch,
+		&dist,
+	)
 	if err != nil {
 		return err
+	}
+
+	var ok bool
+	h.Distance, ok = distanceFuncs[dist]
+	if !ok {
+		return fmt.Errorf("unknown distance function %q", dist)
+	}
+	if h.Rng == nil {
+		h.Rng = defaultRand()
 	}
 
 	if version != encodingVersion {
@@ -232,10 +251,12 @@ func (h *Graph[T]) Import(r io.Reader) error {
 }
 
 // SavedGraph is a wrapper around a graph that persists
-// changes to a file upon calls to Save.
+// changes to a file upon calls to Save. It is more convenient
+// but less powerful than calling Graph.Export and Graph.Import
+// directly.
 type SavedGraph[T Embeddable] struct {
 	*Graph[T]
-	path string
+	Path string
 }
 
 // LoadSavedGraph opens a graph from a file, reads it, and returns it.
@@ -264,12 +285,12 @@ func LoadSavedGraph[T Embeddable](path string) (*SavedGraph[T], error) {
 		}
 	}
 
-	return &SavedGraph[T]{Graph: g, path: path}, nil
+	return &SavedGraph[T]{Graph: g, Path: path}, nil
 }
 
 // Save writes the graph to the file.
 func (g *SavedGraph[T]) Save() error {
-	tmp, err := renameio.TempFile("", g.path)
+	tmp, err := renameio.TempFile("", g.Path)
 	if err != nil {
 		return err
 	}

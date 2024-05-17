@@ -60,6 +60,40 @@ And, if you're struggling with excess memory usage, consider:
 * Reducing $m_L$ a.k.a `Graph.Ml` (the level generation parameter)
 
 
-## Roadmap
+## Persistence
 
-- [ ] [#3](https://github.com/coder/hnsw/issues/3) Persistence / serialization
+While all graph operations are in-memory, `hnsw` provides facilities for loading/saving from persistent storage.
+
+For an `io.Reader`/`io.Writer` interface use `Graph.Export` and `Graph.Import`.
+
+If you're storing within a filesystem, you can use the more convenient `SavedGraph` instead:
+
+```go
+path := "some.graph"
+g1, err := LoadSavedGraph[hnsw.Vector](path)
+if err != nil {
+    panic(err)
+}
+// Insert some vectors
+for i := 0; i < 128; i++ {
+    g1.Add(MakeVector(strconv.Itoa(i), []float32{float32(i)}))
+}
+
+// Save to disk
+err = g1.Save()
+if err != nil {
+    panic(err)
+}
+
+// Later...
+// g2 is a copy of g1
+g2, err := LoadSavedGraph[Vector](path)
+if err != nil {
+    panic(err)
+}
+```
+
+See more:
+* [Export](https://pkg.go.dev/github.com/coder/hnsw#Graph.Export)
+* [Import](https://pkg.go.dev/github.com/coder/hnsw#Graph.Import)
+* [SavedGraph](https://pkg.go.dev/github.com/coder/hnsw#SavedGraph)
