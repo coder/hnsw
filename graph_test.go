@@ -30,22 +30,22 @@ func (n basicPoint) Embedding() []float32 {
 
 func Test_layerNode_search(t *testing.T) {
 	entry := &layerNode[basicPoint]{
-		point: basicPoint(0),
+		Point: basicPoint(0),
 		neighbors: map[string]*layerNode[basicPoint]{
 			"1": {
-				point: basicPoint(1),
+				Point: basicPoint(1),
 			},
 			"2": {
-				point: basicPoint(2),
+				Point: basicPoint(2),
 			},
 			"3": {
-				point: basicPoint(3),
+				Point: basicPoint(3),
 				neighbors: map[string]*layerNode[basicPoint]{
 					"3.8": {
-						point: basicPoint(3.8),
+						Point: basicPoint(3.8),
 					},
 					"4.3": {
-						point: basicPoint(4.3),
+						Point: basicPoint(4.3),
 					},
 				},
 			},
@@ -54,8 +54,8 @@ func Test_layerNode_search(t *testing.T) {
 
 	best := entry.search(2, 4, []float32{4}, EuclideanDistance)
 
-	require.Equal(t, "3.8", best[0].node.point.ID())
-	require.Equal(t, "4.3", best[1].node.point.ID())
+	require.Equal(t, "3.8", best[0].node.Point.ID())
+	require.Equal(t, "4.3", best[1].node.Point.ID())
 	require.Len(t, best, 2)
 }
 
