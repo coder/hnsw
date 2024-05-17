@@ -73,6 +73,25 @@ func verifyGraphNodes[T Embeddable](t *testing.T, g *Graph[T]) {
 	}
 }
 
+// requireGraphApproxEquals checks that two graphs are equal.
+func requireGraphApproxEquals[T Embeddable](t *testing.T, g1, g2 *Graph[T]) {
+	require.Equal(t, g1.Len(), g2.Len())
+	a1 := Analyzer[T]{g1}
+	a2 := Analyzer[T]{g2}
+
+	require.Equal(
+		t,
+		a1.Topography(),
+		a2.Topography(),
+	)
+
+	require.Equal(
+		t,
+		a1.Connectivity(),
+		a2.Connectivity(),
+	)
+}
+
 func TestGraph_ExportImport(t *testing.T) {
 	rng := rand.New(rand.NewSource(0))
 
@@ -89,22 +108,7 @@ func TestGraph_ExportImport(t *testing.T) {
 	err = g2.Import(buf)
 	require.NoError(t, err)
 
-	require.Equal(t, g1.Len(), g2.Len())
-
-	a1 := Analyzer[Vector]{g1}
-	a2 := Analyzer[Vector]{g2}
-
-	require.Equal(
-		t,
-		a1.Topography(),
-		a2.Topography(),
-	)
-
-	require.Equal(
-		t,
-		a1.Connectivity(),
-		a2.Connectivity(),
-	)
+	requireGraphApproxEquals(t, g1, g2)
 
 	n1 := g1.Search(
 		[]float32{0.5},
@@ -118,10 +122,25 @@ func TestGraph_ExportImport(t *testing.T) {
 
 	require.Equal(t, n1, n2)
 
-	verifyGraphNodes[Vector](t, g1)
-	verifyGraphNodes[Vector](t, g2)
+	verifyGraphNodes(t, g1)
+	verifyGraphNodes(t, g2)
+}
 
-	// TODO: make tests robust!
-	// TODO: add SavedGraph type to automate
-	// boilerplate.
+func TestSavedGraph(t *testing.T) {
+	dir := t.TempDir()
+
+	g1, err := LoadSavedGraph[Vector](dir + "/graph")
+	require.NoError(t, err)
+	require.Equal(t, 0, g1.Len())
+	for i := 0; i < 128; i++ {
+		g1.Add(MakeVector(strconv.Itoa(i), []float32{float32(i)}))
+	}
+
+	err = g1.Save()
+	require.NoError(t, err)
+
+	g2, err := LoadSavedGraph[Vector](dir + "/graph")
+	require.NoError(t, err)
+
+	requireGraphApproxEquals(t, g1.Graph, g2.Graph)
 }

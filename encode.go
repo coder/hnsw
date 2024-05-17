@@ -1,9 +1,13 @@
 package hnsw
 
 import (
+	"bufio"
 	"encoding/binary"
 	"fmt"
 	"io"
+	"os"
+
+	"github.com/google/renameio"
 )
 
 // errorEncoder is a helper type to encode multiple values
@@ -216,6 +220,69 @@ func (h *Graph[T]) Import(r io.Reader) error {
 			}
 		}
 		h.layers[i] = &layer[T]{Nodes: nodes}
+	}
+
+	return nil
+}
+
+// SavedGraph is a wrapper around a graph that persists
+// changes to a file upon calls to Save.
+type SavedGraph[T Embeddable] struct {
+	*Graph[T]
+	path string
+}
+
+// LoadSavedGraph opens a graph from a file, reads it, and returns it.
+//
+// If the file does not exist (i.e. this is a new graph),
+// the equivalent of NewGraph is returned.
+//
+// It does not hold open a file descriptor, so SavedGraph can be forgotten
+// without ever calling Save.
+func LoadSavedGraph[T Embeddable](path string) (*SavedGraph[T], error) {
+	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o600)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
+
+	g := NewGraph[T]()
+	if info.Size() > 0 {
+		err = g.Import(bufio.NewReader(f))
+		if err != nil {
+			return nil, fmt.Errorf("import: %w", err)
+		}
+	}
+
+	return &SavedGraph[T]{Graph: g, path: path}, nil
+}
+
+// Save writes the graph to the file.
+func (g *SavedGraph[T]) Save() error {
+	tmp, err := renameio.TempFile("", g.path)
+	if err != nil {
+		return err
+	}
+	defer tmp.Cleanup()
+
+	wr := bufio.NewWriter(tmp)
+	err = g.Export(wr)
+	if err != nil {
+		return fmt.Errorf("exporting: %w", err)
+	}
+
+	err = wr.Flush()
+	if err != nil {
+		return fmt.Errorf("flushing: %w", err)
+	}
+
+	err = tmp.CloseAtomicallyReplace()
+	if err != nil {
+		return fmt.Errorf("closing atomically: %w", err)
 	}
 
 	return nil
