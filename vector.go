@@ -1,8 +1,7 @@
 package hnsw
 
 import (
-	"bytes"
-	"encoding/gob"
+	"io"
 )
 
 var _ Embeddable = Vector{}
@@ -30,39 +29,25 @@ func (v Vector) Embedding() []float32 {
 	return v.embedding
 }
 
-func (v Vector) GobEncode() ([]byte, error) {
-	var buf bytes.Buffer
-	buf.Grow(8 + len(v.id) + 4*len(v.embedding))
-	enc := gob.NewEncoder(&buf)
-	err := enc.Encode(v.id)
-	if err != nil {
-		return nil, err
-	}
-
-	err = enc.Encode(v.embedding)
-	if err != nil {
-		return nil, err
-	}
-
-	return buf.Bytes(), nil
+func (v Vector) WriteTo(w io.Writer) (int64, error) {
+	n, err := multiBinaryWrite(w, v.id, len(v.embedding), v.embedding)
+	return int64(n), err
 }
 
-func (v *Vector) GobDecode(data []byte) error {
-	buf := bytes.NewBuffer(data)
-	dec := gob.NewDecoder(buf)
-	err := dec.Decode(&v.id)
+func (v *Vector) ReadFrom(r io.Reader) (int64, error) {
+	var embLen int
+	n, err := multiBinaryRead(r, &v.id, &embLen)
 	if err != nil {
-		return err
+		return int64(n), err
 	}
 
-	return dec.Decode(&v.embedding)
+	v.embedding = make([]float32, embLen)
+	n, err = binaryRead(r, &v.embedding)
+
+	return int64(n), err
 }
 
 var (
-	_ gob.GobDecoder = (*Vector)(nil)
-	_ gob.GobEncoder = (*Vector)(nil)
+	_ io.WriterTo   = (*Vector)(nil)
+	_ io.ReaderFrom = (*Vector)(nil)
 )
-
-func init() {
-	gob.Register(Vector{})
-}

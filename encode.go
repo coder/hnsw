@@ -1,83 +1,168 @@
 package hnsw
 
 import (
-	"encoding/gob"
+	"encoding/binary"
 	"fmt"
 	"io"
-
-	"golang.org/x/exp/maps"
 )
 
 // errorEncoder is a helper type to encode multiple values
-// without repetitive error checking.
-type errorEncoder struct {
-	err error
-	enc *gob.Encoder
+
+var byteOrder = binary.LittleEndian
+
+func binaryRead(r io.Reader, data interface{}) (int, error) {
+	switch v := data.(type) {
+	case *int:
+		br, ok := r.(io.ByteReader)
+		if !ok {
+			return 0, fmt.Errorf("reader does not implement io.ByteReader")
+		}
+
+		i, err := binary.ReadVarint(br)
+		if err != nil {
+			return 0, err
+		}
+
+		*v = int(i)
+		// TODO: this will usually overshoot size.
+		return binary.MaxVarintLen64, nil
+
+	case *string:
+		var ln int
+		_, err := binaryRead(r, &ln)
+		if err != nil {
+			return 0, err
+		}
+
+		s := make([]byte, ln)
+		_, err = binaryRead(r, &s)
+		*v = string(s)
+		return len(s), err
+
+	case io.ReaderFrom:
+		n, err := v.ReadFrom(r)
+		return int(n), err
+
+	default:
+		return binary.Size(data), binary.Read(r, byteOrder, data)
+	}
 }
 
-func (e *errorEncoder) Encode(v interface{}) {
-	if e.err != nil {
-		return
+func binaryWrite(w io.Writer, data any) (int, error) {
+	switch v := data.(type) {
+	case int:
+		var buf [binary.MaxVarintLen64]byte
+		n := binary.PutVarint(buf[:], int64(v))
+		n, err := w.Write(buf[:n])
+		return n, err
+	case io.WriterTo:
+		n, err := v.WriteTo(w)
+		return int(n), err
+	case string:
+		return multiBinaryWrite(
+			w,
+			len(v),
+			[]byte(v),
+		)
+	default:
+		sz := binary.Size(data)
+		err := binary.Write(w, byteOrder, data)
+		if err != nil {
+			return 0, fmt.Errorf("encoding %T: %w", data, err)
+		}
+		return sz, err
 	}
-	e.err = e.enc.Encode(v)
+}
+
+func multiBinaryWrite(w io.Writer, data ...any) (int, error) {
+	var written int
+	for _, d := range data {
+		n, err := binaryWrite(w, d)
+		written += n
+		if err != nil {
+			return written, err
+		}
+	}
+	return written, nil
+}
+
+func multiBinaryRead(r io.Reader, data ...any) (int, error) {
+	var read int
+	for i, d := range data {
+		n, err := binaryRead(r, d)
+		read += n
+		if err != nil {
+			return read, fmt.Errorf("reading %T at index %v: %w", d, i, err)
+		}
+	}
+	return read, nil
 }
 
 const encodingVersion = 1
 
 // Export writes the graph to a writer.
+//
+// T must be encodable by encoding/binary or implement io.WriterTo.
 // The underlying value type must be encodable with Gob.
 func (h *Graph[T]) Export(w io.Writer) error {
-	enc := &errorEncoder{enc: gob.NewEncoder(w)}
-	enc.Encode(encodingVersion)
-	enc.Encode(h.M)
-	enc.Encode(h.Ml)
-	enc.Encode(h.EfSearch)
-	if enc.err != nil {
-		return fmt.Errorf("encode parameters: %w", enc.err)
+	_, err := multiBinaryWrite(
+		w,
+		encodingVersion,
+		h.M,
+		h.Ml,
+		h.EfSearch,
+	)
+	if err != nil {
+		return fmt.Errorf("encode parameters: %w", err)
 	}
-	enc.Encode(len(h.layers))
+	_, err = binaryWrite(w, len(h.layers))
+	if err != nil {
+		return fmt.Errorf("encode number of layers: %w", err)
+	}
 	for _, layer := range h.layers {
-		enc.Encode(len(layer.Nodes))
+		_, err = binaryWrite(w, len(layer.Nodes))
+		if err != nil {
+			return fmt.Errorf("encode number of nodes: %w", err)
+		}
 		for _, node := range layer.Nodes {
-			enc.Encode(node.Point)
-			enc.Encode(maps.Keys(node.neighbors))
+			_, err = binaryWrite(w, node.Point)
+			if err != nil {
+				return fmt.Errorf("encode node point: %w", err)
+			}
+
+			if _, err = binaryWrite(w, len(node.neighbors)); err != nil {
+				return fmt.Errorf("encode number of neighbors: %w", err)
+			}
+
+			for neighbor := range node.neighbors {
+				_, err = binaryWrite(w, neighbor)
+				if err != nil {
+					return fmt.Errorf("encode neighbor %q: %w", neighbor, err)
+				}
+			}
 		}
 	}
-	return enc.err
+
+	return nil
 }
 
 // Import reads the graph from a reader.
+// T must be decodable by encoding/binary or implement io.ReaderFrom.
 // The parameters do not have to be equal to the parameters
-// of the exported graph.
-// The graph will eventually converge onto the new parameters.
+// of the exported graph. The graph will converge onto the new parameters.
 func (h *Graph[T]) Import(r io.Reader) error {
-	dec := gob.NewDecoder(r)
 	var version int
-	err := dec.Decode(&version)
+	_, err := multiBinaryRead(r, &version, &h.M, &h.Ml, &h.EfSearch)
 	if err != nil {
 		return err
 	}
+
 	if version != encodingVersion {
 		return fmt.Errorf("incompatible encoding version: %d", version)
 	}
 
-	err = dec.Decode(&h.M)
-	if err != nil {
-		return err
-	}
-
-	err = dec.Decode(&h.Ml)
-	if err != nil {
-		return err
-	}
-
-	err = dec.Decode(&h.EfSearch)
-	if err != nil {
-		return err
-	}
-
 	var nLayers int
-	err = dec.Decode(&nLayers)
+	_, err = binaryRead(r, &nLayers)
 	if err != nil {
 		return err
 	}
@@ -85,7 +170,7 @@ func (h *Graph[T]) Import(r io.Reader) error {
 	h.layers = make([]*layer[T], nLayers)
 	for i := 0; i < nLayers; i++ {
 		var nNodes int
-		err = dec.Decode(&nNodes)
+		_, err = binaryRead(r, &nNodes)
 		if err != nil {
 			return err
 		}
@@ -93,16 +178,27 @@ func (h *Graph[T]) Import(r io.Reader) error {
 		nodes := make(map[string]*layerNode[T], nNodes)
 		for j := 0; j < nNodes; j++ {
 			var point T
-			err = dec.Decode(&point)
+			_, err = binaryRead(r, &point)
 			if err != nil {
 				return fmt.Errorf("decoding node %d: %w", j, err)
 			}
 
-			var neighbors []string
-			err = dec.Decode(&neighbors)
+			var nNeighbors int
+			_, err = binaryRead(r, &nNeighbors)
 			if err != nil {
-				return err
+				return fmt.Errorf("decoding number of neighbors for node %d: %w", j, err)
 			}
+
+			neighbors := make([]string, nNeighbors)
+			for k := 0; k < nNeighbors; k++ {
+				var neighbor string
+				_, err = binaryRead(r, &neighbor)
+				if err != nil {
+					return fmt.Errorf("decoding neighbor %d for node %d: %w", k, j, err)
+				}
+				neighbors[k] = neighbor
+			}
+
 			node := &layerNode[T]{
 				Point:     point,
 				neighbors: make(map[string]*layerNode[T]),
