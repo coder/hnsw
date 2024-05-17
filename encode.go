@@ -112,8 +112,7 @@ const encodingVersion = 1
 
 // Export writes the graph to a writer.
 //
-// T must be encodable by encoding/binary or implement io.WriterTo.
-// The underlying value type must be encodable with Gob.
+// T must implement io.WriterTo.
 func (h *Graph[T]) Export(w io.Writer) error {
 	distFuncName, ok := distanceFuncToName(h.Distance)
 	if !ok {
@@ -162,9 +161,9 @@ func (h *Graph[T]) Export(w io.Writer) error {
 }
 
 // Import reads the graph from a reader.
-// T must be decodable by encoding/binary or implement io.ReaderFrom.
-// The parameters do not have to be equal to the parameters
-// of the exported graph. The graph will converge onto the new parameters.
+// T must implement io.ReaderFrom.
+// The imported graph does not have to match the exported graph's parameters (except for
+// dimensionality). The graph will converge onto the new parameters.
 func (h *Graph[T]) Import(r io.Reader) error {
 	var (
 		version int
