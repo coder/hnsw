@@ -155,6 +155,8 @@ func Benchmark_HSNW(b *testing.B) {
 	for _, size := range sizes {
 		b.Run(strconv.Itoa(size), func(b *testing.B) {
 			g := Graph[basicPoint]{}
+			g.Ml = 0.5
+			g.Distance = EuclideanDistance
 			for i := 0; i < size; i++ {
 				g.Add(basicPoint(i))
 			}
@@ -196,7 +198,7 @@ func randFloats(n int) []float32 {
 func Benchmark_HNSW_1536(b *testing.B) {
 	b.ReportAllocs()
 
-	g := Graph[genericPoint]{}
+	g := newTestGraph[genericPoint]()
 	const size = 1000
 	points := make([]genericPoint, size)
 	for i := 0; i < size; i++ {

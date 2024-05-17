@@ -64,9 +64,9 @@ And, if you're struggling with excess memory usage, consider:
 
 While all graph operations are in-memory, `hnsw` provides facilities for loading/saving from persistent storage.
 
-For an `io.Reader`/`io.Writer` interface use `Graph.Export` and `Graph.Import`.
+For an `io.Reader`/`io.Writer` interface, use `Graph.Export` and `Graph.Import`.
 
-If you're storing within a filesystem, you can use the more convenient `SavedGraph` instead:
+If you're using a single file as the backend, hnsw provides a convenient `SavedGraph` type instead:
 
 ```go
 path := "some.graph"
@@ -97,3 +97,18 @@ See more:
 * [Export](https://pkg.go.dev/github.com/coder/hnsw#Graph.Export)
 * [Import](https://pkg.go.dev/github.com/coder/hnsw#Graph.Import)
 * [SavedGraph](https://pkg.go.dev/github.com/coder/hnsw#SavedGraph)
+
+We use a fast binary encoding for the graph, so you can expect to save/load
+nearly at disk speed. On my M3 Macbook I get these benchmark results:
+
+```
+goos: darwin
+goarch: arm64
+pkg: github.com/coder/hnsw
+BenchmarkGraph_Import-16            2733            369803 ns/op         228.65 MB/s      352041 B/op       9880 allocs/op
+BenchmarkGraph_Export-16            6046            194441 ns/op        1076.65 MB/s      261854 B/op       3760 allocs/op
+PASS
+ok      github.com/coder/hnsw   2.530s
+```
+
+when saving/loading a graph of 100 vectors with 256 dimensions.

@@ -276,10 +276,16 @@ func (h *Graph[T]) randomLevel() int {
 	// by calculating a probably good one from the size of the base layer.
 	max := 1
 	if len(h.layers) > 0 {
+		if h.Ml == 0 {
+			panic("(*Graph).Ml must be greater than 0")
+		}
 		max = maxLevel(h.Ml, h.layers[0].size())
 	}
 
 	for level := 0; level < max; level++ {
+		if h.Rng == nil {
+			h.Rng = defaultRand()
+		}
 		r := h.Rng.Float64()
 		if r > h.Ml {
 			return level
@@ -348,6 +354,10 @@ func (g *Graph[T]) Add(nodes ...T) {
 			// at the best point.
 			if elevator != "" {
 				searchPoint = layer.Nodes[elevator]
+			}
+
+			if g.Distance == nil {
+				panic("(*Graph).Distance must be set")
 			}
 
 			neighborhood := searchPoint.search(g.M, g.EfSearch, n.Embedding(), g.Distance)
