@@ -63,11 +63,17 @@ func binaryWrite(w io.Writer, data any) (int, error) {
 		n, err := v.WriteTo(w)
 		return int(n), err
 	case string:
-		return multiBinaryWrite(
-			w,
-			len(v),
-			[]byte(v),
-		)
+		n, err := binaryWrite(w, len(v))
+		if err != nil {
+			return n, err
+		}
+		n2, err := io.WriteString(w, v)
+		if err != nil {
+			return n + n2, err
+		}
+
+		return n + n2, nil
+
 	default:
 		sz := binary.Size(data)
 		err := binary.Write(w, byteOrder, data)

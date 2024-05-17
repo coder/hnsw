@@ -2,7 +2,6 @@ package hnsw
 
 import (
 	"bytes"
-	"io"
 	"math/rand"
 	"strconv"
 	"testing"
@@ -160,6 +159,8 @@ func BenchmarkGraph_Import(b *testing.B) {
 	require.NoError(b, err)
 
 	b.ResetTimer()
+	b.SetBytes(int64(buf.Len()))
+
 	for i := 0; i < b.N; i++ {
 		b.StopTimer()
 		rdr := bytes.NewReader(buf.Bytes())
@@ -176,8 +177,14 @@ func BenchmarkGraph_Export(b *testing.B) {
 		g.Add(MakeVector(strconv.Itoa(i), randFloats(256)))
 	}
 
+	var buf bytes.Buffer
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		g.Export(io.Discard)
+		g.Export(&buf)
+		if i == 0 {
+			ln := buf.Len()
+			b.SetBytes(int64(ln))
+		}
+		buf.Reset()
 	}
 }

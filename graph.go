@@ -289,10 +289,19 @@ func (g *Graph[T]) assertDims(n Embedding) {
 	if len(g.layers) == 0 {
 		return
 	}
-	hasDims := len(g.layers[0].entry().Point.Embedding())
+	hasDims := g.Dims()
 	if hasDims != len(n) {
 		panic(fmt.Sprint("embedding dimension mismatch: ", hasDims, " != ", len(n)))
 	}
+}
+
+// Dims returns the number of dimensions in the graph, or
+// 0 if the graph is empty.
+func (g *Graph[T]) Dims() int {
+	if len(g.layers) == 0 {
+		return 0
+	}
+	return len(g.layers[0].entry().Point.Embedding())
 }
 
 // Add inserts nodes into the graph.
