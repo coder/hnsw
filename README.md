@@ -45,19 +45,6 @@ fmt.Printf("best friend: %v\n", neighbors[0].Embedding())
 // Output: best friend: [1 1 1]
 ```
 
-## Performance
-
-By and large the greatest effect you can have on the performance of the graph
-is reducing the dimensionality of your data. At 1536 dimensions (OpenAI default),
-70% of the query process under default parameters is spent in the distance function.
-
-If you're struggling with slowness / latency, consider:
-* Reducing dimensionality
-* Increasing $M$
-
-And, if you're struggling with excess memory usage, consider:
-* Reducing $M$ a.k.a `Graph.M` (the maximum number of neighbors each node can have)
-* Reducing $m_L$ a.k.a `Graph.Ml` (the level generation parameter)
 
 
 ## Persistence
@@ -112,3 +99,17 @@ ok      github.com/coder/hnsw   2.530s
 ```
 
 when saving/loading a graph of 100 vectors with 256 dimensions.
+
+## Performance
+
+By and large the greatest effect you can have on the performance of the graph
+is reducing the dimensionality of your data. At 1536 dimensions (OpenAI default),
+70% of the query process under default parameters is spent in the distance function.
+
+If you're struggling with slowness / latency, consider:
+* Reducing dimensionality
+* Increasing $M$
+
+And, if you're struggling with excess memory usage, consider:
+* Reducing $M$ a.k.a `Graph.M` (the maximum number of neighbors each node can have)
+* Reducing $m_L$ a.k.a `Graph.Ml` (the level generation parameter)
