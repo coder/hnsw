@@ -114,13 +114,13 @@ And, if you're struggling with excess memory usage, consider:
 * Reducing $M$ a.k.a `Graph.M` (the maximum number of neighbors each node can have)
 * Reducing $m_L$ a.k.a `Graph.Ml` (the level generation parameter)
 
-### Memory Overhead
+## Memory Overhead
 
 The memory overhead of a graph looks like:
 
 $$
 \displaylines{
-mem_{graph} = n \cdot log(n) \cdot size(id) \cdot M  \\
+mem_{graph} = n \cdot \log(n) \cdot \text{size(id)} \cdot M \\
 mem_{base} = n \cdot d \cdot 4 \\
 mem_{total} = mem_{graph} + mem_{base}
 }
@@ -128,18 +128,18 @@ $$
 
 where:
 * $n$ is the number of vectors in the graph
-* $size(id)$ is the average size of the ID in bytes
+* $\text{size(id)}$ is the average size of the ID in bytes
 * $M$ is the maximum number of neighbors each node can have
 * $d$ is the dimensionality of the vectors
 * $mem_{graph}$ is the memory used by the graph structure across all layers
 * $mem_{base}$ is the memory used by the vectors themselves in the base or 0th layer
 
 You can infer that:
-* Connectivity or $M$ is very expensive if IDs are large
-* If $d\cdot4$ is far larger than $M \cdot size(id)$, you should expect linear memory usage spent on representing vector data
-* If $d\cdot4$ is far smaller than $M \cdot size(id)$, you should expect $n \cdot log(n)$ memory usage spent on representing graph structure
+* Connectivity ($M$) is very expensive if IDs are large
+* If $d \cdot 4$ is far larger than $M \cdot \text{size(id)}$, you should expect linear memory usage spent on representing vector data
+* If $d \cdot 4$ is far smaller than $M \cdot \text{size(id)}$, you should expect $n \cdot \log(n)$ memory usage spent on representing graph structure
 
-In the example of a graph 256 dimensions, and $M = 16$, with 8 byte IDs, you would see that each vector takes:
+In the example of a graph with 256 dimensions, and $M = 16$, with 8 byte IDs, you would see that each vector takes:
 
 * $256 \cdot 4 = 1024$ data bytes 
 * $16 \cdot 8 = 128$ metadata bytes
