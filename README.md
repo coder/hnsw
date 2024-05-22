@@ -119,9 +119,11 @@ And, if you're struggling with excess memory usage, consider:
 The memory overhead of a graph looks like:
 
 $$
-graph\_mem = n \cdot log(n) \cdot size(id) \cdot M\\
-base\_mem = n \cdot d \cdot 4 \\
-total\_memory = graph\_mem + base\_mem
+\displaylines{
+mem_{graph} = n \cdot log(n) \cdot size(id) \cdot M  \\
+mem_{base} = n \cdot d \cdot 4 \\
+mem_{total} = mem_{graph} + mem_{base}
+}
 $$
 
 where:
@@ -129,8 +131,8 @@ where:
 * $size(id)$ is the average size of the ID in bytes
 * $M$ is the maximum number of neighbors each node can have
 * $d$ is the dimensionality of the vectors
-* $graph\_mem$ is the memory used by the graph structure across all layers
-* $base\_mem$ is the memory used by the vectors themselves in the base or 0th layer
+* $mem_{graph}$ is the memory used by the graph structure across all layers
+* $mem_{base}$ is the memory used by the vectors themselves in the base or 0th layer
 
 You can infer that:
 * Connectivity or $M$ is very expensive if IDs are large
