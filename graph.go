@@ -50,7 +50,9 @@ func (n *layerNode[T]) addNeighbor(newNode *layerNode[T], m int, dist DistanceFu
 	)
 	for _, neighbor := range n.neighbors {
 		d := dist(neighbor.Point.Embedding(), n.Point.Embedding())
-		if d > worstDist {
+		// d > worstDist may always be false if the distance function
+		// returns NaN, e.g., when the embeddings are zero.
+		if d > worstDist || worst == nil {
 			worstDist = d
 			worst = neighbor
 		}

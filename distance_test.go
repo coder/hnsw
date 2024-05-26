@@ -29,3 +29,12 @@ func TestCosineSimilarity(t *testing.T) {
 	b = []float32{1, 0}
 	require.InDelta(t, 0, CosineDistance(a, b), 0.000001)
 }
+
+func BenchmarkCosineSimilarity(b *testing.B) {
+	v1 := randFloats(1536)
+	v2 := randFloats(1536)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		CosineDistance(v1, v2)
+	}
+}
