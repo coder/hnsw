@@ -194,7 +194,8 @@ func BenchmarkGraph_Import(b *testing.B) {
 		rdr := bytes.NewReader(buf.Bytes())
 		g := newTestGraph[Vector]()
 		b.StartTimer()
-		g.Import(rdr)
+		err = g.Import(rdr)
+		require.NoError(b, err)
 	}
 }
 
@@ -208,7 +209,8 @@ func BenchmarkGraph_Export(b *testing.B) {
 	var buf bytes.Buffer
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		g.Export(&buf)
+		err := g.Export(&buf)
+		require.NoError(b, err)
 		if i == 0 {
 			ln := buf.Len()
 			b.SetBytes(int64(ln))
