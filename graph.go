@@ -1,6 +1,7 @@
 package hnsw
 
 import (
+	"cmp"
 	"fmt"
 	"math"
 	"math/rand"
@@ -14,28 +15,28 @@ import (
 type Embedding = []float32
 
 // Embeddable describes a type that can be embedded in a HNSW graph.
-type Embeddable interface {
+type Embeddable[K cmp.Ordered] interface {
 	// ID returns a unique identifier for the object.
-	ID() string
+	ID() K
 	// Embedding returns the embedding of the object.
 	// float32 is used for compatibility with OpenAI embeddings.
 	Embedding() Embedding
 }
 
 // layerNode is a node in a layer of the graph.
-type layerNode[T Embeddable] struct {
-	Point Embeddable
+type layerNode[K cmp.Ordered, V Embeddable[K]] struct {
+	Point Embeddable[K]
 	// neighbors is map of neighbor IDs to neighbor nodes.
 	// It is a map and not a slice to allow for efficient deletes, esp.
 	// when M is high.
-	neighbors map[string]*layerNode[T]
+	neighbors map[K]*layerNode[K, V]
 }
 
 // addNeighbor adds a o neighbor to the node, replacing the neighbor
 // with the worst distance if the neighbor set is full.
-func (n *layerNode[T]) addNeighbor(newNode *layerNode[T], m int, dist DistanceFunc) {
+func (n *layerNode[K, V]) addNeighbor(newNode *layerNode[K, V], m int, dist DistanceFunc) {
 	if n.neighbors == nil {
-		n.neighbors = make(map[string]*layerNode[T], m)
+		n.neighbors = make(map[K]*layerNode[K, V], m)
 	}
 
 	n.neighbors[newNode.Point.ID()] = newNode
@@ -46,7 +47,7 @@ func (n *layerNode[T]) addNeighbor(newNode *layerNode[T], m int, dist DistanceFu
 	// Find the neighbor with the worst distance.
 	var (
 		worstDist = float32(math.Inf(-1))
-		worst     *layerNode[T]
+		worst     *layerNode[K, V]
 	)
 	for _, neighbor := range n.neighbors {
 		d := dist(neighbor.Point.Embedding(), n.Point.Embedding())
@@ -64,39 +65,39 @@ func (n *layerNode[T]) addNeighbor(newNode *layerNode[T], m int, dist DistanceFu
 	worst.replenish(m)
 }
 
-type searchCandidate[T Embeddable] struct {
-	node *layerNode[T]
+type searchCandidate[K cmp.Ordered, V Embeddable[K]] struct {
+	node *layerNode[K, V]
 	dist float32
 }
 
-func (s searchCandidate[T]) Less(o searchCandidate[T]) bool {
+func (s searchCandidate[K, V]) Less(o searchCandidate[K, V]) bool {
 	return s.dist < o.dist
 }
 
 // search returns the layer node closest to the target node
 // within the same layer.
-func (n *layerNode[T]) search(
+func (n *layerNode[K, V]) search(
 	// k is the number of candidates in the result set.
 	k int,
 	efSearch int,
 	target Embedding,
 	distance DistanceFunc,
-) []searchCandidate[T] {
+) []searchCandidate[K, V] {
 	// This is a basic greedy algorithm to find the entry point at the given level
 	// that is closest to the target node.
-	candidates := heap.Heap[searchCandidate[T]]{}
-	candidates.Init(make([]searchCandidate[T], 0, efSearch))
+	candidates := heap.Heap[searchCandidate[K, V]]{}
+	candidates.Init(make([]searchCandidate[K, V], 0, efSearch))
 	candidates.Push(
-		searchCandidate[T]{
+		searchCandidate[K, V]{
 			node: n,
 			dist: distance(n.Point.Embedding(), target),
 		},
 	)
 	var (
-		result  = heap.Heap[searchCandidate[T]]{}
-		visited = make(map[string]bool)
+		result  = heap.Heap[searchCandidate[K, V]]{}
+		visited = make(map[K]bool)
 	)
-	result.Init(make([]searchCandidate[T], 0, k))
+	result.Init(make([]searchCandidate[K, V], 0, k))
 
 	// Begin with the entry node in the result set.
 	result.Push(candidates.Min())
@@ -122,13 +123,13 @@ func (n *layerNode[T]) search(
 			dist := distance(neighbor.Point.Embedding(), target)
 			improved = improved || dist < result.Min().dist
 			if result.Len() < k {
-				result.Push(searchCandidate[T]{node: neighbor, dist: dist})
+				result.Push(searchCandidate[K, V]{node: neighbor, dist: dist})
 			} else if dist < result.Max().dist {
 				result.PopLast()
-				result.Push(searchCandidate[T]{node: neighbor, dist: dist})
+				result.Push(searchCandidate[K, V]{node: neighbor, dist: dist})
 			}
 
-			candidates.Push(searchCandidate[T]{node: neighbor, dist: dist})
+			candidates.Push(searchCandidate[K, V]{node: neighbor, dist: dist})
 			// Always store candidates if we haven't reached the limit.
 			if candidates.Len() > efSearch {
 				candidates.PopLast()
@@ -145,7 +146,7 @@ func (n *layerNode[T]) search(
 	return result.Slice()
 }
 
-func (n *layerNode[T]) replenish(m int) {
+func (n *layerNode[K, V]) replenish(m int) {
 	if len(n.neighbors) >= m {
 		return
 	}
@@ -172,7 +173,7 @@ func (n *layerNode[T]) replenish(m int) {
 
 // isolates remove the node from the graph by removing all connections
 // to neighbors.
-func (n *layerNode[T]) isolate(m int) {
+func (n *layerNode[K, V]) isolate(m int) {
 	for _, neighbor := range n.neighbors {
 		delete(neighbor.neighbors, n.Point.ID())
 		neighbor.replenish(m)
