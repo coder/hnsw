@@ -1,6 +1,7 @@
 package hnsw
 
 import (
+	"cmp"
 	"math/rand"
 	"strconv"
 	"testing"
@@ -18,34 +19,42 @@ func Test_maxLevel(t *testing.T) {
 	require.Equal(t, 11, m)
 }
 
-type basicPoint float32
-
-func (n basicPoint) ID() string {
-	return strconv.FormatFloat(float64(n), 'f', -1, 32)
-}
-
-func (n basicPoint) Embedding() []float32 {
-	return []float32{float32(n)}
-}
-
 func Test_layerNode_search(t *testing.T) {
-	entry := &layerNode[basicPoint]{
-		vec: basicPoint(0),
-		neighbors: map[string]*layerNode[basicPoint]{
-			"1": {
-				vec: basicPoint(1),
+	entry := &layerNode[int]{
+		Node: Node[int]{
+			Vec: Vector{0},
+			ID:  0,
+		},
+		neighbors: map[int]*layerNode[int]{
+			1: {
+				Node: Node[int]{
+					Vec: Vector{1},
+					ID:  1,
+				},
 			},
-			"2": {
-				vec: basicPoint(2),
+			2: {
+				Node: Node[int]{
+					Vec: Vector{2},
+					ID:  2,
+				},
 			},
-			"3": {
-				vec: basicPoint(3),
-				neighbors: map[string]*layerNode[basicPoint]{
-					"3.8": {
-						vec: basicPoint(3.8),
+			3: {
+				Node: Node[int]{
+					Vec: Vector{3},
+					ID:  3,
+				},
+				neighbors: map[int]*layerNode[int]{
+					4: {
+						Node: Node[int]{
+							Vec: Vector{4},
+							ID:  5,
+						},
 					},
-					"4.3": {
-						vec: basicPoint(4.3),
+					5: {
+						Node: Node[int]{
+							Vec: Vector{5},
+							ID:  5,
+						},
 					},
 				},
 			},
@@ -54,13 +63,13 @@ func Test_layerNode_search(t *testing.T) {
 
 	best := entry.search(2, 4, []float32{4}, EuclideanDistance)
 
-	require.Equal(t, "3.8", best[0].node.Point.ID())
-	require.Equal(t, "4.3", best[1].node.Point.ID())
+	require.Equal(t, 4, best[0].node.ID)
+	require.Equal(t, 3, best[1].node.ID)
 	require.Len(t, best, 2)
 }
 
-func newTestGraph[T Embeddable]() *Graph[T] {
-	return &Graph[T]{
+func newTestGraph[K cmp.Ordered]() *Graph[K] {
+	return &Graph[K]{
 		M:        6,
 		Distance: EuclideanDistance,
 		Ml:       0.5,
@@ -72,13 +81,18 @@ func newTestGraph[T Embeddable]() *Graph[T] {
 func TestGraph_AddSearch(t *testing.T) {
 	t.Parallel()
 
-	g := newTestGraph[basicPoint]()
+	g := newTestGraph[int]()
 
 	for i := 0; i < 128; i++ {
-		g.Add(basicPoint(float32(i)))
+		g.Add(
+			Node[int]{
+				ID:  i,
+				Vec: Vector{float32(i)},
+			},
+		)
 	}
 
-	al := Analyzer[basicPoint]{Graph: g}
+	al := Analyzer[int]{Graph: g}
 
 	// Layers should be approximately log2(128) = 7
 	// Look for an approximate doubling of the number of nodes in each layer.
@@ -101,11 +115,11 @@ func TestGraph_AddSearch(t *testing.T) {
 	require.Len(t, nearest, 4)
 	require.EqualValues(
 		t,
-		[]basicPoint{
-			(64),
-			(65),
-			(62),
-			(63),
+		[]Node[int]{
+			{64, Vector{64}},
+			{65, Vector{65}},
+			{62, Vector{62}},
+			{63, Vector{63}},
 		},
 		nearest,
 	)
@@ -114,19 +128,22 @@ func TestGraph_AddSearch(t *testing.T) {
 func TestGraph_AddDelete(t *testing.T) {
 	t.Parallel()
 
-	g := newTestGraph[basicPoint]()
+	g := newTestGraph[int]()
 	for i := 0; i < 128; i++ {
-		g.Add(basicPoint(i))
+		g.Add(Node[int]{
+			ID:  i,
+			Vec: Vector{float32(i)},
+		})
 	}
 
 	require.Equal(t, 128, g.Len())
-	an := Analyzer[basicPoint]{Graph: g}
+	an := Analyzer[int]{Graph: g}
 
 	preDeleteConnectivity := an.Connectivity()
 
 	// Delete every even node.
 	for i := 0; i < 128; i += 2 {
-		ok := g.Delete(basicPoint(i).ID())
+		ok := g.Delete(i)
 		require.True(t, ok)
 	}
 
@@ -141,7 +158,7 @@ func TestGraph_AddDelete(t *testing.T) {
 	)
 
 	t.Run("DeleteNotFound", func(t *testing.T) {
-		ok := g.Delete("not found")
+		ok := g.Delete(-1)
 		require.False(t, ok)
 	})
 }
@@ -154,11 +171,14 @@ func Benchmark_HSNW(b *testing.B) {
 	// Use this to ensure that complexity is O(log n) where n = h.Len().
 	for _, size := range sizes {
 		b.Run(strconv.Itoa(size), func(b *testing.B) {
-			g := Graph[basicPoint]{}
+			g := Graph[int]{}
 			g.Ml = 0.5
 			g.Distance = EuclideanDistance
 			for i := 0; i < size; i++ {
-				g.Add(basicPoint(i))
+				g.Add(Node[int]{
+					ID:  i,
+					Vec: Vector{float32(i)},
+				})
 			}
 			b.ResetTimer()
 
@@ -174,19 +194,6 @@ func Benchmark_HSNW(b *testing.B) {
 	}
 }
 
-type genericPoint struct {
-	id string
-	x  []float32
-}
-
-func (n genericPoint) ID() string {
-	return n.id
-}
-
-func (n genericPoint) Embedding() []float32 {
-	return n.x
-}
-
 func randFloats(n int) []float32 {
 	x := make([]float32, n)
 	for i := range x {
@@ -198,11 +205,14 @@ func randFloats(n int) []float32 {
 func Benchmark_HNSW_1536(b *testing.B) {
 	b.ReportAllocs()
 
-	g := newTestGraph[genericPoint]()
+	g := newTestGraph[int]()
 	const size = 1000
-	points := make([]genericPoint, size)
+	points := make([]Node[int], size)
 	for i := 0; i < size; i++ {
-		points[i] = genericPoint{x: randFloats(1536), id: strconv.Itoa(i)}
+		points[i] = Node[int]{
+			ID:  i,
+			Vec: Vector(randFloats(1536)),
+		}
 		g.Add(points[i])
 	}
 	b.ResetTimer()
@@ -210,7 +220,7 @@ func Benchmark_HNSW_1536(b *testing.B) {
 	b.Run("Search", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
 			g.Search(
-				points[i%size].x,
+				points[i%size].Vec,
 				4,
 			)
 		}
@@ -218,11 +228,11 @@ func Benchmark_HNSW_1536(b *testing.B) {
 }
 
 func TestGraph_DefaultCosine(t *testing.T) {
-	g := NewGraph[Vector]()
+	g := NewGraph[int]()
 	g.Add(
-		MakeVector("1", []float32{1, 1}),
-		MakeVector("2", []float32{0, 1}),
-		MakeVector("3", []float32{1, -1}),
+		Node[int]{ID: 1, Vec: Vector{1, 1}},
+		Node[int]{ID: 2, Vec: Vector{0, 1}},
+		Node[int]{ID: 3, Vec: Vector{1, -1}},
 	)
 
 	neighbors := g.Search(
@@ -232,8 +242,8 @@ func TestGraph_DefaultCosine(t *testing.T) {
 
 	require.Equal(
 		t,
-		[]Vector{
-			MakeVector("1", []float32{1, 1}),
+		[]Node[int]{
+			{1, Vector{1, 1}},
 		},
 		neighbors,
 	)
