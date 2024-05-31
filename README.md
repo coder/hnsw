@@ -32,18 +32,18 @@ go get github.com/coder/hnsw@main
 ```
 
 ```go
-g := hnsw.NewGraph[hnsw.Vector]()
+g := hnsw.NewGraph[int]()
 g.Add(
-    hnsw.MakeVector("1", []float32{1, 1, 1}),
-    hnsw.MakeVector("2", []float32{1, -1, 0.999}),
-    hnsw.MakeVector("3", []float32{1, 0, -0.5}),
+    hnsw.MakeNode(1, []float32{1, 1, 1}),
+    hnsw.MakeNode(2, []float32{1, -1, 0.999}),
+    hnsw.MakeNode(3, []float32{1, 0, -0.5}),
 )
 
 neighbors := g.Search(
     []float32{0.5, 0.5, 0.5},
     1,
 )
-fmt.Printf("best friend: %v\n", neighbors[0].Embedding())
+fmt.Printf("best friend: %v\n", neighbors[0].Vec)
 // Output: best friend: [1 1 1]
 ```
 
@@ -59,13 +59,13 @@ If you're using a single file as the backend, hnsw provides a convenient `SavedG
 
 ```go
 path := "some.graph"
-g1, err := LoadSavedGraph[hnsw.Vector](path)
+g1, err := LoadSavedGraph[int](path)
 if err != nil {
     panic(err)
 }
 // Insert some vectors
 for i := 0; i < 128; i++ {
-    g1.Add(MakeVector(strconv.Itoa(i), []float32{float32(i)}))
+    g1.Add(hnsw.MakeNode(i, []float32{float32(i)}))
 }
 
 // Save to disk
@@ -76,7 +76,7 @@ if err != nil {
 
 // Later...
 // g2 is a copy of g1
-g2, err := LoadSavedGraph[Vector](path)
+g2, err := LoadSavedGraph[int](path)
 if err != nil {
     panic(err)
 }
@@ -94,10 +94,10 @@ nearly at disk speed. On my M3 Macbook I get these benchmark results:
 goos: darwin
 goarch: arm64
 pkg: github.com/coder/hnsw
-BenchmarkGraph_Import-16            2733            369803 ns/op         228.65 MB/s      352041 B/op       9880 allocs/op
-BenchmarkGraph_Export-16            6046            194441 ns/op        1076.65 MB/s      261854 B/op       3760 allocs/op
+BenchmarkGraph_Import-16            4029            259927 ns/op         796.85 MB/s      496022 B/op       3212 allocs/op
+BenchmarkGraph_Export-16            7042            168028 ns/op        1232.49 MB/s      239886 B/op       2388 allocs/op
 PASS
-ok      github.com/coder/hnsw   2.530s
+ok      github.com/coder/hnsw   2.624s
 ```
 
 when saving/loading a graph of 100 vectors with 256 dimensions.
