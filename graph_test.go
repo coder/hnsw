@@ -30,22 +30,22 @@ func (n basicPoint) Embedding() []float32 {
 
 func Test_layerNode_search(t *testing.T) {
 	entry := &layerNode[basicPoint]{
-		Point: basicPoint(0),
+		vec: basicPoint(0),
 		neighbors: map[string]*layerNode[basicPoint]{
 			"1": {
-				Point: basicPoint(1),
+				vec: basicPoint(1),
 			},
 			"2": {
-				Point: basicPoint(2),
+				vec: basicPoint(2),
 			},
 			"3": {
-				Point: basicPoint(3),
+				vec: basicPoint(3),
 				neighbors: map[string]*layerNode[basicPoint]{
 					"3.8": {
-						Point: basicPoint(3.8),
+						vec: basicPoint(3.8),
 					},
 					"4.3": {
-						Point: basicPoint(4.3),
+						vec: basicPoint(4.3),
 					},
 				},
 			},

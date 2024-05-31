@@ -228,7 +228,7 @@ func (h *Graph[T]) Import(r io.Reader) error {
 			}
 
 			node := &layerNode[T]{
-				Point:     point,
+				vec:       point,
 				neighbors: make(map[string]*layerNode[T]),
 			}
 
@@ -243,7 +243,7 @@ func (h *Graph[T]) Import(r io.Reader) error {
 				node.neighbors[id] = nodes[id]
 			}
 		}
-		h.layers[i] = &layer[T]{Nodes: nodes}
+		h.layers[i] = &layer[T]{nodes: nodes}
 	}
 
 	return nil
