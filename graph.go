@@ -20,6 +20,10 @@ type Node[K cmp.Ordered] struct {
 	Vec Vector
 }
 
+func MakeNode[K cmp.Ordered](id K, vec Vector) Node[K] {
+	return Node[K]{ID: id, Vec: vec}
+}
+
 // layerNode is a node in a layer of the graph.
 type layerNode[K cmp.Ordered] struct {
 	Node[K]

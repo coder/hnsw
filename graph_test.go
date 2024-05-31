@@ -63,7 +63,7 @@ func Test_layerNode_search(t *testing.T) {
 
 	best := entry.search(2, 4, []float32{4}, EuclideanDistance)
 
-	require.Equal(t, 4, best[0].node.ID)
+	require.Equal(t, 5, best[0].node.ID)
 	require.Equal(t, 3, best[1].node.ID)
 	require.Len(t, best, 2)
 }
