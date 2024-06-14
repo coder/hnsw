@@ -277,7 +277,7 @@ func maxLevel(ml float64, numNodes int) int {
 }
 
 // randomLevel generates a random level for a new node.
-func (h *Graph[T]) randomLevel() int {
+func (h *Graph[K]) randomLevel() int {
 	// max avoids having to accept an additional parameter for the maximum level
 	// by calculating a probably good one from the size of the base layer.
 	max := 1
@@ -301,7 +301,7 @@ func (h *Graph[T]) randomLevel() int {
 	return max
 }
 
-func (g *Graph[T]) assertDims(n Vector) {
+func (g *Graph[K]) assertDims(n Vector) {
 	if len(g.layers) == 0 {
 		return
 	}
@@ -313,7 +313,7 @@ func (g *Graph[T]) assertDims(n Vector) {
 
 // Dims returns the number of dimensions in the graph, or
 // 0 if the graph is empty.
-func (g *Graph[T]) Dims() int {
+func (g *Graph[K]) Dims() int {
 	if len(g.layers) == 0 {
 		return 0
 	}
@@ -447,7 +447,7 @@ func (h *Graph[K]) Search(near Vector, k int) []Node[K] {
 }
 
 // Len returns the number of nodes in the graph.
-func (h *Graph[T]) Len() int {
+func (h *Graph[K]) Len() int {
 	if len(h.layers) == 0 {
 		return 0
 	}

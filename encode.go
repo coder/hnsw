@@ -300,7 +300,7 @@ func LoadSavedGraph[K cmp.Ordered](path string) (*SavedGraph[K], error) {
 }
 
 // Save writes the graph to the file.
-func (g *SavedGraph[T]) Save() error {
+func (g *SavedGraph[K]) Save() error {
 	tmp, err := renameio.TempFile("", g.Path)
 	if err != nil {
 		return err
