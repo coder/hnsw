@@ -22,38 +22,38 @@ func Test_maxLevel(t *testing.T) {
 func Test_layerNode_search(t *testing.T) {
 	entry := &layerNode[int]{
 		Node: Node[int]{
-			Vec: Vector{0},
-			ID:  0,
+			Value: Vector{0},
+			Key:   0,
 		},
 		neighbors: map[int]*layerNode[int]{
 			1: {
 				Node: Node[int]{
-					Vec: Vector{1},
-					ID:  1,
+					Value: Vector{1},
+					Key:   1,
 				},
 			},
 			2: {
 				Node: Node[int]{
-					Vec: Vector{2},
-					ID:  2,
+					Value: Vector{2},
+					Key:   2,
 				},
 			},
 			3: {
 				Node: Node[int]{
-					Vec: Vector{3},
-					ID:  3,
+					Value: Vector{3},
+					Key:   3,
 				},
 				neighbors: map[int]*layerNode[int]{
 					4: {
 						Node: Node[int]{
-							Vec: Vector{4},
-							ID:  5,
+							Value: Vector{4},
+							Key:   5,
 						},
 					},
 					5: {
 						Node: Node[int]{
-							Vec: Vector{5},
-							ID:  5,
+							Value: Vector{5},
+							Key:   5,
 						},
 					},
 				},
@@ -63,8 +63,8 @@ func Test_layerNode_search(t *testing.T) {
 
 	best := entry.search(2, 4, []float32{4}, EuclideanDistance)
 
-	require.Equal(t, 5, best[0].node.ID)
-	require.Equal(t, 3, best[1].node.ID)
+	require.Equal(t, 5, best[0].node.Key)
+	require.Equal(t, 3, best[1].node.Key)
 	require.Len(t, best, 2)
 }
 
@@ -86,8 +86,8 @@ func TestGraph_AddSearch(t *testing.T) {
 	for i := 0; i < 128; i++ {
 		g.Add(
 			Node[int]{
-				ID:  i,
-				Vec: Vector{float32(i)},
+				Key:   i,
+				Value: Vector{float32(i)},
 			},
 		)
 	}
@@ -131,8 +131,8 @@ func TestGraph_AddDelete(t *testing.T) {
 	g := newTestGraph[int]()
 	for i := 0; i < 128; i++ {
 		g.Add(Node[int]{
-			ID:  i,
-			Vec: Vector{float32(i)},
+			Key:   i,
+			Value: Vector{float32(i)},
 		})
 	}
 
@@ -176,8 +176,8 @@ func Benchmark_HSNW(b *testing.B) {
 			g.Distance = EuclideanDistance
 			for i := 0; i < size; i++ {
 				g.Add(Node[int]{
-					ID:  i,
-					Vec: Vector{float32(i)},
+					Key:   i,
+					Value: Vector{float32(i)},
 				})
 			}
 			b.ResetTimer()
@@ -210,8 +210,8 @@ func Benchmark_HNSW_1536(b *testing.B) {
 	points := make([]Node[int], size)
 	for i := 0; i < size; i++ {
 		points[i] = Node[int]{
-			ID:  i,
-			Vec: Vector(randFloats(1536)),
+			Key:   i,
+			Value: Vector(randFloats(1536)),
 		}
 		g.Add(points[i])
 	}
@@ -220,7 +220,7 @@ func Benchmark_HNSW_1536(b *testing.B) {
 	b.Run("Search", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
 			g.Search(
-				points[i%size].Vec,
+				points[i%size].Value,
 				4,
 			)
 		}
@@ -230,9 +230,9 @@ func Benchmark_HNSW_1536(b *testing.B) {
 func TestGraph_DefaultCosine(t *testing.T) {
 	g := NewGraph[int]()
 	g.Add(
-		Node[int]{ID: 1, Vec: Vector{1, 1}},
-		Node[int]{ID: 2, Vec: Vector{0, 1}},
-		Node[int]{ID: 3, Vec: Vector{1, -1}},
+		Node[int]{Key: 1, Value: Vector{1, 1}},
+		Node[int]{Key: 2, Value: Vector{0, 1}},
+		Node[int]{Key: 3, Value: Vector{1, -1}},
 	)
 
 	neighbors := g.Search(

@@ -53,17 +53,17 @@ func verifyGraphNodes[K cmp.Ordered](t *testing.T, g *Graph[K]) {
 	for _, layer := range g.layers {
 		for _, node := range layer.nodes {
 			for neighborKey, neighbor := range node.neighbors {
-				_, ok := layer.nodes[neighbor.ID]
+				_, ok := layer.nodes[neighbor.Key]
 				if !ok {
 					t.Errorf(
 						"node %v has neighbor %v, but neighbor does not exist",
-						node.ID, neighbor.ID,
+						node.Key, neighbor.Key,
 					)
 				}
 
-				if neighborKey != neighbor.ID {
-					t.Errorf("node %v has neighbor %v, but neighbor key is %v", node.ID,
-						neighbor.ID,
+				if neighborKey != neighbor.Key {
+					t.Errorf("node %v has neighbor %v, but neighbor key is %v", node.Key,
+						neighbor.Key,
 						neighborKey,
 					)
 				}

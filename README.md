@@ -130,18 +130,18 @@ $$
 
 where:
 * $n$ is the number of vectors in the graph
-* $\text{size(id)}$ is the average size of the ID in bytes
+* $\text{size(key)}$ is the average size of the key in bytes
 * $M$ is the maximum number of neighbors each node can have
 * $d$ is the dimensionality of the vectors
 * $mem_{graph}$ is the memory used by the graph structure across all layers
 * $mem_{base}$ is the memory used by the vectors themselves in the base or 0th layer
 
 You can infer that:
-* Connectivity ($M$) is very expensive if IDs are large
-* If $d \cdot 4$ is far larger than $M \cdot \text{size(id)}$, you should expect linear memory usage spent on representing vector data
-* If $d \cdot 4$ is far smaller than $M \cdot \text{size(id)}$, you should expect $n \cdot \log(n)$ memory usage spent on representing graph structure
+* Connectivity ($M$) is very expensive if keys are large
+* If $d \cdot 4$ is far larger than $M \cdot \text{size(key)}$, you should expect linear memory usage spent on representing vector data
+* If $d \cdot 4$ is far smaller than $M \cdot \text{size(key)}$, you should expect $n \cdot \log(n)$ memory usage spent on representing graph structure
 
-In the example of a graph with 256 dimensions, and $M = 16$, with 8 byte IDs, you would see that each vector takes:
+In the example of a graph with 256 dimensions, and $M = 16$, with 8 byte keys, you would see that each vector takes:
 
 * $256 \cdot 4 = 1024$ data bytes 
 * $16 \cdot 8 = 128$ metadata bytes

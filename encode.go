@@ -156,7 +156,7 @@ func (h *Graph[K]) Export(w io.Writer) error {
 			return fmt.Errorf("encode number of nodes: %w", err)
 		}
 		for _, node := range layer.nodes {
-			_, err = multiBinaryWrite(w, node.ID, node.Vec, len(node.neighbors))
+			_, err = multiBinaryWrite(w, node.Key, node.Value, len(node.neighbors))
 			if err != nil {
 				return fmt.Errorf("encode node data: %w", err)
 			}
@@ -218,10 +218,10 @@ func (h *Graph[K]) Import(r io.Reader) error {
 
 		nodes := make(map[K]*layerNode[K], nNodes)
 		for j := 0; j < nNodes; j++ {
-			var id K
+			var key K
 			var vec Vector
 			var nNeighbors int
-			_, err = multiBinaryRead(r, &id, &vec, &nNeighbors)
+			_, err = multiBinaryRead(r, &key, &vec, &nNeighbors)
 			if err != nil {
 				return fmt.Errorf("decoding node %d: %w", j, err)
 			}
@@ -238,21 +238,21 @@ func (h *Graph[K]) Import(r io.Reader) error {
 
 			node := &layerNode[K]{
 				Node: Node[K]{
-					ID:  id,
-					Vec: vec,
+					Key:   key,
+					Value: vec,
 				},
 				neighbors: make(map[K]*layerNode[K]),
 			}
 
-			nodes[id] = node
+			nodes[key] = node
 			for _, neighbor := range neighbors {
 				node.neighbors[neighbor] = nil
 			}
 		}
 		// Fill in neighbor pointers
 		for _, node := range nodes {
-			for id := range node.neighbors {
-				node.neighbors[id] = nodes[id]
+			for key := range node.neighbors {
+				node.neighbors[key] = nodes[key]
 			}
 		}
 		h.layers[i] = &layer[K]{nodes: nodes}

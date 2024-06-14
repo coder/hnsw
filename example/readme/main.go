@@ -18,5 +18,5 @@ func main() {
 		[]float32{0.5, 0.5, 0.5},
 		1,
 	)
-	fmt.Printf("best friend: %v\n", neighbors[0].Vec)
+	fmt.Printf("best friend: %v\n", neighbors[0].Value)
 }
