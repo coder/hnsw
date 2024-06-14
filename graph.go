@@ -1,6 +1,7 @@
 package hnsw
 
 import (
+	"cmp"
 	"fmt"
 	"math"
 	"math/rand"
@@ -11,34 +12,36 @@ import (
 	"golang.org/x/exp/maps"
 )
 
-type Embedding = []float32
+type Vector = []float32
 
-// Embeddable describes a type that can be embedded in a HNSW graph.
-type Embeddable interface {
-	// ID returns a unique identifier for the object.
-	ID() string
-	// Embedding returns the embedding of the object.
-	// float32 is used for compatibility with OpenAI embeddings.
-	Embedding() Embedding
+// Node is a node in the graph.
+type Node[K cmp.Ordered] struct {
+	Key   K
+	Value Vector
+}
+
+func MakeNode[K cmp.Ordered](key K, vec Vector) Node[K] {
+	return Node[K]{Key: key, Value: vec}
 }
 
 // layerNode is a node in a layer of the graph.
-type layerNode[T Embeddable] struct {
-	Point Embeddable
-	// neighbors is map of neighbor IDs to neighbor nodes.
+type layerNode[K cmp.Ordered] struct {
+	Node[K]
+
+	// neighbors is map of neighbor keys to neighbor nodes.
 	// It is a map and not a slice to allow for efficient deletes, esp.
 	// when M is high.
-	neighbors map[string]*layerNode[T]
+	neighbors map[K]*layerNode[K]
 }
 
 // addNeighbor adds a o neighbor to the node, replacing the neighbor
 // with the worst distance if the neighbor set is full.
-func (n *layerNode[T]) addNeighbor(newNode *layerNode[T], m int, dist DistanceFunc) {
+func (n *layerNode[K]) addNeighbor(newNode *layerNode[K], m int, dist DistanceFunc) {
 	if n.neighbors == nil {
-		n.neighbors = make(map[string]*layerNode[T], m)
+		n.neighbors = make(map[K]*layerNode[K], m)
 	}
 
-	n.neighbors[newNode.Point.ID()] = newNode
+	n.neighbors[newNode.Key] = newNode
 	if len(n.neighbors) <= m {
 		return
 	}
@@ -46,10 +49,10 @@ func (n *layerNode[T]) addNeighbor(newNode *layerNode[T], m int, dist DistanceFu
 	// Find the neighbor with the worst distance.
 	var (
 		worstDist = float32(math.Inf(-1))
-		worst     *layerNode[T]
+		worst     *layerNode[K]
 	)
 	for _, neighbor := range n.neighbors {
-		d := dist(neighbor.Point.Embedding(), n.Point.Embedding())
+		d := dist(neighbor.Value, n.Value)
 		// d > worstDist may always be false if the distance function
 		// returns NaN, e.g., when the embeddings are zero.
 		if d > worstDist || worst == nil {
@@ -58,49 +61,49 @@ func (n *layerNode[T]) addNeighbor(newNode *layerNode[T], m int, dist DistanceFu
 		}
 	}
 
-	delete(n.neighbors, worst.Point.ID())
+	delete(n.neighbors, worst.Key)
 	// Delete backlink from the worst neighbor.
-	delete(worst.neighbors, n.Point.ID())
+	delete(worst.neighbors, n.Key)
 	worst.replenish(m)
 }
 
-type searchCandidate[T Embeddable] struct {
-	node *layerNode[T]
+type searchCandidate[K cmp.Ordered] struct {
+	node *layerNode[K]
 	dist float32
 }
 
-func (s searchCandidate[T]) Less(o searchCandidate[T]) bool {
+func (s searchCandidate[K]) Less(o searchCandidate[K]) bool {
 	return s.dist < o.dist
 }
 
 // search returns the layer node closest to the target node
 // within the same layer.
-func (n *layerNode[T]) search(
+func (n *layerNode[K]) search(
 	// k is the number of candidates in the result set.
 	k int,
 	efSearch int,
-	target Embedding,
+	target Vector,
 	distance DistanceFunc,
-) []searchCandidate[T] {
+) []searchCandidate[K] {
 	// This is a basic greedy algorithm to find the entry point at the given level
 	// that is closest to the target node.
-	candidates := heap.Heap[searchCandidate[T]]{}
-	candidates.Init(make([]searchCandidate[T], 0, efSearch))
+	candidates := heap.Heap[searchCandidate[K]]{}
+	candidates.Init(make([]searchCandidate[K], 0, efSearch))
 	candidates.Push(
-		searchCandidate[T]{
+		searchCandidate[K]{
 			node: n,
-			dist: distance(n.Point.Embedding(), target),
+			dist: distance(n.Value, target),
 		},
 	)
 	var (
-		result  = heap.Heap[searchCandidate[T]]{}
-		visited = make(map[string]bool)
+		result  = heap.Heap[searchCandidate[K]]{}
+		visited = make(map[K]bool)
 	)
-	result.Init(make([]searchCandidate[T], 0, k))
+	result.Init(make([]searchCandidate[K], 0, k))
 
 	// Begin with the entry node in the result set.
 	result.Push(candidates.Min())
-	visited[n.Point.ID()] = true
+	visited[n.Key] = true
 
 	for candidates.Len() > 0 {
 		var (
@@ -110,25 +113,25 @@ func (n *layerNode[T]) search(
 
 		// We iterate the map in a sorted, deterministic fashion for
 		// tests.
-		neighborIDs := maps.Keys(current.neighbors)
-		slices.Sort(neighborIDs)
-		for _, neighborID := range neighborIDs {
+		neighborKeys := maps.Keys(current.neighbors)
+		slices.Sort(neighborKeys)
+		for _, neighborID := range neighborKeys {
 			neighbor := current.neighbors[neighborID]
 			if visited[neighborID] {
 				continue
 			}
 			visited[neighborID] = true
 
-			dist := distance(neighbor.Point.Embedding(), target)
+			dist := distance(neighbor.Value, target)
 			improved = improved || dist < result.Min().dist
 			if result.Len() < k {
-				result.Push(searchCandidate[T]{node: neighbor, dist: dist})
+				result.Push(searchCandidate[K]{node: neighbor, dist: dist})
 			} else if dist < result.Max().dist {
 				result.PopLast()
-				result.Push(searchCandidate[T]{node: neighbor, dist: dist})
+				result.Push(searchCandidate[K]{node: neighbor, dist: dist})
 			}
 
-			candidates.Push(searchCandidate[T]{node: neighbor, dist: dist})
+			candidates.Push(searchCandidate[K]{node: neighbor, dist: dist})
 			// Always store candidates if we haven't reached the limit.
 			if candidates.Len() > efSearch {
 				candidates.PopLast()
@@ -145,7 +148,7 @@ func (n *layerNode[T]) search(
 	return result.Slice()
 }
 
-func (n *layerNode[T]) replenish(m int) {
+func (n *layerNode[K]) replenish(m int) {
 	if len(n.neighbors) >= m {
 		return
 	}
@@ -154,8 +157,8 @@ func (n *layerNode[T]) replenish(m int) {
 	// This is a naive implementation that could be improved by
 	// using a priority queue to find the best candidates.
 	for _, neighbor := range n.neighbors {
-		for id, candidate := range neighbor.neighbors {
-			if _, ok := n.neighbors[id]; ok {
+		for key, candidate := range neighbor.neighbors {
+			if _, ok := n.neighbors[key]; ok {
 				// do not add duplicates
 				continue
 			}
@@ -172,46 +175,47 @@ func (n *layerNode[T]) replenish(m int) {
 
 // isolates remove the node from the graph by removing all connections
 // to neighbors.
-func (n *layerNode[T]) isolate(m int) {
+func (n *layerNode[K]) isolate(m int) {
 	for _, neighbor := range n.neighbors {
-		delete(neighbor.neighbors, n.Point.ID())
+		delete(neighbor.neighbors, n.Key)
 		neighbor.replenish(m)
 	}
 }
 
-type layer[T Embeddable] struct {
-	// Nodes is a map of node IDs to Nodes.
-	// All Nodes in a higher layer are also in the lower layers, an essential
+type layer[K cmp.Ordered] struct {
+	// nodes is a map of nodes IDs to nodes.
+	// All nodes in a higher layer are also in the lower layers, an essential
 	// property of the graph.
 	//
-	// Nodes is exported for interop with encoding/gob.
-	Nodes map[string]*layerNode[T]
+	// nodes is exported for interop with encoding/gob.
+	nodes map[K]*layerNode[K]
 }
 
 // entry returns the entry node of the layer.
 // It doesn't matter which node is returned, even that the
 // entry node is consistent, so we just return the first node
 // in the map to avoid tracking extra state.
-func (l *layer[T]) entry() *layerNode[T] {
+func (l *layer[K]) entry() *layerNode[K] {
 	if l == nil {
 		return nil
 	}
-	for _, node := range l.Nodes {
+	for _, node := range l.nodes {
 		return node
 	}
 	return nil
 }
 
-func (l *layer[T]) size() int {
+func (l *layer[K]) size() int {
 	if l == nil {
 		return 0
 	}
-	return len(l.Nodes)
+	return len(l.nodes)
 }
 
 // Graph is a Hierarchical Navigable Small World graph.
 // All public parameters must be set before adding nodes to the graph.
-type Graph[T Embeddable] struct {
+// K is cmp.Ordered instead of of comparable so that they can be sorted.
+type Graph[K cmp.Ordered] struct {
 	// Distance is the distance function used to compare embeddings.
 	Distance DistanceFunc
 
@@ -234,7 +238,7 @@ type Graph[T Embeddable] struct {
 	EfSearch int
 
 	// layers is a slice of layers in the graph.
-	layers []*layer[T]
+	layers []*layer[K]
 }
 
 func defaultRand() *rand.Rand {
@@ -243,8 +247,8 @@ func defaultRand() *rand.Rand {
 
 // NewGraph returns a new graph with default parameters, roughly designed for
 // storing OpenAI embeddings.
-func NewGraph[T Embeddable]() *Graph[T] {
-	return &Graph[T]{
+func NewGraph[K cmp.Ordered]() *Graph[K] {
+	return &Graph[K]{
 		M:        16,
 		Ml:       0.25,
 		Distance: CosineDistance,
@@ -297,7 +301,7 @@ func (h *Graph[T]) randomLevel() int {
 	return max
 }
 
-func (g *Graph[T]) assertDims(n Embedding) {
+func (g *Graph[T]) assertDims(n Vector) {
 	if len(g.layers) == 0 {
 		return
 	}
@@ -313,38 +317,48 @@ func (g *Graph[T]) Dims() int {
 	if len(g.layers) == 0 {
 		return 0
 	}
-	return len(g.layers[0].entry().Point.Embedding())
+	return len(g.layers[0].entry().Value)
+}
+
+func ptr[T any](v T) *T {
+	return &v
 }
 
 // Add inserts nodes into the graph.
 // If another node with the same ID exists, it is replaced.
-func (g *Graph[T]) Add(nodes ...T) {
-	for _, n := range nodes {
-		g.assertDims(n.Embedding())
+func (g *Graph[K]) Add(nodes ...Node[K]) {
+	for _, node := range nodes {
+		key := node.Key
+		vec := node.Value
+
+		g.assertDims(vec)
 		insertLevel := g.randomLevel()
 		// Create layers that don't exist yet.
 		for insertLevel >= len(g.layers) {
-			g.layers = append(g.layers, &layer[T]{})
+			g.layers = append(g.layers, &layer[K]{})
 		}
 
 		if insertLevel < 0 {
 			panic("invalid level")
 		}
 
-		var elevator string
+		var elevator *K
 
 		preLen := g.Len()
 
 		// Insert node at each layer, beginning with the highest.
 		for i := len(g.layers) - 1; i >= 0; i-- {
 			layer := g.layers[i]
-			newNode := &layerNode[T]{
-				Point: n,
+			newNode := &layerNode[K]{
+				Node: Node[K]{
+					Key:   key,
+					Value: vec,
+				},
 			}
 
 			// Insert the new node into the layer.
 			if layer.entry() == nil {
-				layer.Nodes = map[string]*layerNode[T]{n.ID(): newNode}
+				layer.nodes = map[K]*layerNode[K]{key: newNode}
 				continue
 			}
 
@@ -354,15 +368,15 @@ func (g *Graph[T]) Add(nodes ...T) {
 
 			// On subsequent layers, we use the elevator node to enter the graph
 			// at the best point.
-			if elevator != "" {
-				searchPoint = layer.Nodes[elevator]
+			if elevator != nil {
+				searchPoint = layer.nodes[*elevator]
 			}
 
 			if g.Distance == nil {
 				panic("(*Graph).Distance must be set")
 			}
 
-			neighborhood := searchPoint.search(g.M, g.EfSearch, n.Embedding(), g.Distance)
+			neighborhood := searchPoint.search(g.M, g.EfSearch, vec, g.Distance)
 			if len(neighborhood) == 0 {
 				// This should never happen because the searchPoint itself
 				// should be in the result set.
@@ -370,14 +384,14 @@ func (g *Graph[T]) Add(nodes ...T) {
 			}
 
 			// Re-set the elevator node for the next layer.
-			elevator = neighborhood[0].node.Point.ID()
+			elevator = ptr(neighborhood[0].node.Key)
 
 			if insertLevel >= i {
-				if _, ok := layer.Nodes[n.ID()]; ok {
-					g.Delete(n.ID())
+				if _, ok := layer.nodes[key]; ok {
+					g.Delete(key)
 				}
 				// Insert the new node into the layer.
-				layer.Nodes[n.ID()] = newNode
+				layer.nodes[key] = newNode
 				for _, node := range neighborhood {
 					// Create a bi-directional edge between the new node and the best node.
 					node.node.addNeighbor(newNode, g.M, g.Distance)
@@ -394,7 +408,7 @@ func (g *Graph[T]) Add(nodes ...T) {
 }
 
 // Search finds the k nearest neighbors from the target node.
-func (h *Graph[T]) Search(near Embedding, k int) []T {
+func (h *Graph[K]) Search(near Vector, k int) []Node[K] {
 	h.assertDims(near)
 	if len(h.layers) == 0 {
 		return nil
@@ -403,27 +417,27 @@ func (h *Graph[T]) Search(near Embedding, k int) []T {
 	var (
 		efSearch = h.EfSearch
 
-		elevator string
+		elevator *K
 	)
 
 	for layer := len(h.layers) - 1; layer >= 0; layer-- {
 		searchPoint := h.layers[layer].entry()
-		if elevator != "" {
-			searchPoint = h.layers[layer].Nodes[elevator]
+		if elevator != nil {
+			searchPoint = h.layers[layer].nodes[*elevator]
 		}
 
 		// Descending hierarchies
 		if layer > 0 {
 			nodes := searchPoint.search(1, efSearch, near, h.Distance)
-			elevator = nodes[0].node.Point.ID()
+			elevator = ptr(nodes[0].node.Key)
 			continue
 		}
 
 		nodes := searchPoint.search(k, efSearch, near, h.Distance)
-		out := make([]T, 0, len(nodes))
+		out := make([]Node[K], 0, len(nodes))
 
 		for _, node := range nodes {
-			out = append(out, node.node.Point.(T))
+			out = append(out, node.node.Node)
 		}
 
 		return out
@@ -440,21 +454,21 @@ func (h *Graph[T]) Len() int {
 	return h.layers[0].size()
 }
 
-// Delete removes a node from the graph by ID.
+// Delete removes a node from the graph by key.
 // It tries to preserve the clustering properties of the graph by
 // replenishing connectivity in the affected neighborhoods.
-func (h *Graph[T]) Delete(id string) bool {
+func (h *Graph[K]) Delete(key K) bool {
 	if len(h.layers) == 0 {
 		return false
 	}
 
 	var deleted bool
 	for _, layer := range h.layers {
-		node, ok := layer.Nodes[id]
+		node, ok := layer.nodes[key]
 		if !ok {
 			continue
 		}
-		delete(layer.Nodes, id)
+		delete(layer.nodes, key)
 		node.isolate(h.M)
 		deleted = true
 	}
@@ -462,12 +476,15 @@ func (h *Graph[T]) Delete(id string) bool {
 	return deleted
 }
 
-// Lookup returns the node with the given ID.
-func (h *Graph[T]) Lookup(id string) (T, bool) {
-	var zero T
+// Lookup returns the vector with the given key.
+func (h *Graph[K]) Lookup(key K) (Vector, bool) {
 	if len(h.layers) == 0 {
-		return zero, false
+		return nil, false
 	}
 
-	return h.layers[0].Nodes[id].Point.(T), true
+	node, ok := h.layers[0].nodes[key]
+	if !ok {
+		return nil, false
+	}
+	return node.Value, ok
 }

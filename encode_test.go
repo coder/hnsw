@@ -2,8 +2,7 @@ package hnsw
 
 import (
 	"bytes"
-	"math/rand"
-	"strconv"
+	"cmp"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -50,21 +49,21 @@ func Test_binaryWrite_string(t *testing.T) {
 	require.Empty(t, buf.Bytes())
 }
 
-func verifyGraphNodes[T Embeddable](t *testing.T, g *Graph[T]) {
+func verifyGraphNodes[K cmp.Ordered](t *testing.T, g *Graph[K]) {
 	for _, layer := range g.layers {
-		for _, node := range layer.Nodes {
+		for _, node := range layer.nodes {
 			for neighborKey, neighbor := range node.neighbors {
-				_, ok := layer.Nodes[neighbor.Point.ID()]
+				_, ok := layer.nodes[neighbor.Key]
 				if !ok {
 					t.Errorf(
-						"node %s has neighbor %s, but neighbor does not exist",
-						node.Point.ID(), neighbor.Point.ID(),
+						"node %v has neighbor %v, but neighbor does not exist",
+						node.Key, neighbor.Key,
 					)
 				}
 
-				if neighborKey != neighbor.Point.ID() {
-					t.Errorf("node %s has neighbor %s, but neighbor key is %s", node.Point.ID(),
-						neighbor.Point.ID(),
+				if neighborKey != neighbor.Key {
+					t.Errorf("node %v has neighbor %v, but neighbor key is %v", node.Key,
+						neighbor.Key,
 						neighborKey,
 					)
 				}
@@ -74,10 +73,10 @@ func verifyGraphNodes[T Embeddable](t *testing.T, g *Graph[T]) {
 }
 
 // requireGraphApproxEquals checks that two graphs are equal.
-func requireGraphApproxEquals[T Embeddable](t *testing.T, g1, g2 *Graph[T]) {
+func requireGraphApproxEquals[K cmp.Ordered](t *testing.T, g1, g2 *Graph[K]) {
 	require.Equal(t, g1.Len(), g2.Len())
-	a1 := Analyzer[T]{g1}
-	a2 := Analyzer[T]{g2}
+	a1 := Analyzer[K]{g1}
+	a2 := Analyzer[K]{g2}
 
 	require.Equal(
 		t,
@@ -119,11 +118,13 @@ func requireGraphApproxEquals[T Embeddable](t *testing.T, g1, g2 *Graph[T]) {
 }
 
 func TestGraph_ExportImport(t *testing.T) {
-	rng := rand.New(rand.NewSource(0))
-
-	g1 := newTestGraph[Vector]()
+	g1 := newTestGraph[int]()
 	for i := 0; i < 128; i++ {
-		g1.Add(MakeVector(strconv.Itoa(i), []float32{rng.Float32()}))
+		g1.Add(
+			Node[int]{
+				i, randFloats(1),
+			},
+		)
 	}
 
 	buf := &bytes.Buffer{}
@@ -132,7 +133,7 @@ func TestGraph_ExportImport(t *testing.T) {
 
 	// Don't use newTestGraph to ensure parameters
 	// are imported.
-	g2 := &Graph[Vector]{}
+	g2 := &Graph[int]{}
 	err = g2.Import(buf)
 	require.NoError(t, err)
 
@@ -157,17 +158,21 @@ func TestGraph_ExportImport(t *testing.T) {
 func TestSavedGraph(t *testing.T) {
 	dir := t.TempDir()
 
-	g1, err := LoadSavedGraph[Vector](dir + "/graph")
+	g1, err := LoadSavedGraph[int](dir + "/graph")
 	require.NoError(t, err)
 	require.Equal(t, 0, g1.Len())
 	for i := 0; i < 128; i++ {
-		g1.Add(MakeVector(strconv.Itoa(i), []float32{float32(i)}))
+		g1.Add(
+			Node[int]{
+				i, randFloats(1),
+			},
+		)
 	}
 
 	err = g1.Save()
 	require.NoError(t, err)
 
-	g2, err := LoadSavedGraph[Vector](dir + "/graph")
+	g2, err := LoadSavedGraph[int](dir + "/graph")
 	require.NoError(t, err)
 
 	requireGraphApproxEquals(t, g1.Graph, g2.Graph)
@@ -177,9 +182,13 @@ const benchGraphSize = 100
 
 func BenchmarkGraph_Import(b *testing.B) {
 	b.ReportAllocs()
-	g := newTestGraph[Vector]()
+	g := newTestGraph[int]()
 	for i := 0; i < benchGraphSize; i++ {
-		g.Add(MakeVector(strconv.Itoa(i), randFloats(100)))
+		g.Add(
+			Node[int]{
+				i, randFloats(256),
+			},
+		)
 	}
 
 	buf := &bytes.Buffer{}
@@ -192,7 +201,7 @@ func BenchmarkGraph_Import(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		b.StopTimer()
 		rdr := bytes.NewReader(buf.Bytes())
-		g := newTestGraph[Vector]()
+		g := newTestGraph[int]()
 		b.StartTimer()
 		err = g.Import(rdr)
 		require.NoError(b, err)
@@ -201,9 +210,13 @@ func BenchmarkGraph_Import(b *testing.B) {
 
 func BenchmarkGraph_Export(b *testing.B) {
 	b.ReportAllocs()
-	g := newTestGraph[Vector]()
+	g := newTestGraph[int]()
 	for i := 0; i < benchGraphSize; i++ {
-		g.Add(MakeVector(strconv.Itoa(i), randFloats(256)))
+		g.Add(
+			Node[int]{
+				i, randFloats(256),
+			},
+		)
 	}
 
 	var buf bytes.Buffer

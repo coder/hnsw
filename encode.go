@@ -2,6 +2,7 @@ package hnsw
 
 import (
 	"bufio"
+	"cmp"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -43,6 +44,16 @@ func binaryRead(r io.Reader, data interface{}) (int, error) {
 		*v = string(s)
 		return len(s), err
 
+	case *[]float32:
+		var ln int
+		_, err := binaryRead(r, &ln)
+		if err != nil {
+			return 0, err
+		}
+
+		*v = make([]float32, ln)
+		return binary.Size(*v), binary.Read(r, byteOrder, *v)
+
 	case io.ReaderFrom:
 		n, err := v.ReadFrom(r)
 		return int(n), err
@@ -73,6 +84,12 @@ func binaryWrite(w io.Writer, data any) (int, error) {
 		}
 
 		return n + n2, nil
+	case []float32:
+		n, err := binaryWrite(w, len(v))
+		if err != nil {
+			return n, err
+		}
+		return n + binary.Size(v), binary.Write(w, byteOrder, v)
 
 	default:
 		sz := binary.Size(data)
@@ -113,7 +130,7 @@ const encodingVersion = 1
 // Export writes the graph to a writer.
 //
 // T must implement io.WriterTo.
-func (h *Graph[T]) Export(w io.Writer) error {
+func (h *Graph[K]) Export(w io.Writer) error {
 	distFuncName, ok := distanceFuncToName(h.Distance)
 	if !ok {
 		return fmt.Errorf("distance function %v must be registered with RegisterDistanceFunc", h.Distance)
@@ -134,24 +151,20 @@ func (h *Graph[T]) Export(w io.Writer) error {
 		return fmt.Errorf("encode number of layers: %w", err)
 	}
 	for _, layer := range h.layers {
-		_, err = binaryWrite(w, len(layer.Nodes))
+		_, err = binaryWrite(w, len(layer.nodes))
 		if err != nil {
 			return fmt.Errorf("encode number of nodes: %w", err)
 		}
-		for _, node := range layer.Nodes {
-			_, err = binaryWrite(w, node.Point)
+		for _, node := range layer.nodes {
+			_, err = multiBinaryWrite(w, node.Key, node.Value, len(node.neighbors))
 			if err != nil {
-				return fmt.Errorf("encode node point: %w", err)
-			}
-
-			if _, err = binaryWrite(w, len(node.neighbors)); err != nil {
-				return fmt.Errorf("encode number of neighbors: %w", err)
+				return fmt.Errorf("encode node data: %w", err)
 			}
 
 			for neighbor := range node.neighbors {
 				_, err = binaryWrite(w, neighbor)
 				if err != nil {
-					return fmt.Errorf("encode neighbor %q: %w", neighbor, err)
+					return fmt.Errorf("encode neighbor %v: %w", neighbor, err)
 				}
 			}
 		}
@@ -164,7 +177,7 @@ func (h *Graph[T]) Export(w io.Writer) error {
 // T must implement io.ReaderFrom.
 // The imported graph does not have to match the exported graph's parameters (except for
 // dimensionality). The graph will converge onto the new parameters.
-func (h *Graph[T]) Import(r io.Reader) error {
+func (h *Graph[K]) Import(r io.Reader) error {
 	var (
 		version int
 		dist    string
@@ -195,7 +208,7 @@ func (h *Graph[T]) Import(r io.Reader) error {
 		return err
 	}
 
-	h.layers = make([]*layer[T], nLayers)
+	h.layers = make([]*layer[K], nLayers)
 	for i := 0; i < nLayers; i++ {
 		var nNodes int
 		_, err = binaryRead(r, &nNodes)
@@ -203,23 +216,19 @@ func (h *Graph[T]) Import(r io.Reader) error {
 			return err
 		}
 
-		nodes := make(map[string]*layerNode[T], nNodes)
+		nodes := make(map[K]*layerNode[K], nNodes)
 		for j := 0; j < nNodes; j++ {
-			var point T
-			_, err = binaryRead(r, &point)
+			var key K
+			var vec Vector
+			var nNeighbors int
+			_, err = multiBinaryRead(r, &key, &vec, &nNeighbors)
 			if err != nil {
 				return fmt.Errorf("decoding node %d: %w", j, err)
 			}
 
-			var nNeighbors int
-			_, err = binaryRead(r, &nNeighbors)
-			if err != nil {
-				return fmt.Errorf("decoding number of neighbors for node %d: %w", j, err)
-			}
-
-			neighbors := make([]string, nNeighbors)
+			neighbors := make([]K, nNeighbors)
 			for k := 0; k < nNeighbors; k++ {
-				var neighbor string
+				var neighbor K
 				_, err = binaryRead(r, &neighbor)
 				if err != nil {
 					return fmt.Errorf("decoding neighbor %d for node %d: %w", k, j, err)
@@ -227,23 +236,26 @@ func (h *Graph[T]) Import(r io.Reader) error {
 				neighbors[k] = neighbor
 			}
 
-			node := &layerNode[T]{
-				Point:     point,
-				neighbors: make(map[string]*layerNode[T]),
+			node := &layerNode[K]{
+				Node: Node[K]{
+					Key:   key,
+					Value: vec,
+				},
+				neighbors: make(map[K]*layerNode[K]),
 			}
 
-			nodes[point.ID()] = node
+			nodes[key] = node
 			for _, neighbor := range neighbors {
 				node.neighbors[neighbor] = nil
 			}
 		}
 		// Fill in neighbor pointers
 		for _, node := range nodes {
-			for id := range node.neighbors {
-				node.neighbors[id] = nodes[id]
+			for key := range node.neighbors {
+				node.neighbors[key] = nodes[key]
 			}
 		}
-		h.layers[i] = &layer[T]{Nodes: nodes}
+		h.layers[i] = &layer[K]{nodes: nodes}
 	}
 
 	return nil
@@ -253,8 +265,8 @@ func (h *Graph[T]) Import(r io.Reader) error {
 // changes to a file upon calls to Save. It is more convenient
 // but less powerful than calling Graph.Export and Graph.Import
 // directly.
-type SavedGraph[T Embeddable] struct {
-	*Graph[T]
+type SavedGraph[K cmp.Ordered] struct {
+	*Graph[K]
 	Path string
 }
 
@@ -265,7 +277,7 @@ type SavedGraph[T Embeddable] struct {
 //
 // It does not hold open a file descriptor, so SavedGraph can be forgotten
 // without ever calling Save.
-func LoadSavedGraph[T Embeddable](path string) (*SavedGraph[T], error) {
+func LoadSavedGraph[K cmp.Ordered](path string) (*SavedGraph[K], error) {
 	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o600)
 	if err != nil {
 		return nil, err
@@ -276,7 +288,7 @@ func LoadSavedGraph[T Embeddable](path string) (*SavedGraph[T], error) {
 		return nil, err
 	}
 
-	g := NewGraph[T]()
+	g := NewGraph[K]()
 	if info.Size() > 0 {
 		err = g.Import(bufio.NewReader(f))
 		if err != nil {
@@ -284,7 +296,7 @@ func LoadSavedGraph[T Embeddable](path string) (*SavedGraph[T], error) {
 		}
 	}
 
-	return &SavedGraph[T]{Graph: g, Path: path}, nil
+	return &SavedGraph[K]{Graph: g, Path: path}, nil
 }
 
 // Save writes the graph to the file.
