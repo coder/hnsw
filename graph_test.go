@@ -2,6 +2,7 @@ package hnsw
 
 import (
 	"cmp"
+	"fmt"
 	"math/rand"
 	"strconv"
 	"testing"
@@ -11,11 +12,14 @@ import (
 
 func Test_maxLevel(t *testing.T) {
 	var m int
+	var err error
 
-	m = maxLevel(0.5, 10)
+	m, err = maxLevel(0.5, 10)
+	require.NoError(t, err)
 	require.Equal(t, 4, m)
 
-	m = maxLevel(0.5, 1000)
+	m, err = maxLevel(0.5, 1000)
+	require.NoError(t, err)
 	require.Equal(t, 11, m)
 }
 
@@ -84,12 +88,13 @@ func TestGraph_AddSearch(t *testing.T) {
 	g := newTestGraph[int]()
 
 	for i := 0; i < 128; i++ {
-		g.Add(
+		err := g.Add(
 			Node[int]{
 				Key:   i,
 				Value: Vector{float32(i)},
 			},
 		)
+		require.NoError(t, err)
 	}
 
 	al := Analyzer[int]{Graph: g}
@@ -107,10 +112,11 @@ func TestGraph_AddSearch(t *testing.T) {
 		1,
 	}, al.Topography())
 
-	nearest := g.Search(
+	nearest, err := g.Search(
 		[]float32{64.5},
 		4,
 	)
+	require.NoError(t, err)
 
 	require.Len(t, nearest, 4)
 	require.EqualValues(
@@ -130,10 +136,11 @@ func TestGraph_AddDelete(t *testing.T) {
 
 	g := newTestGraph[int]()
 	for i := 0; i < 128; i++ {
-		g.Add(Node[int]{
+		err := g.Add(Node[int]{
 			Key:   i,
 			Value: Vector{float32(i)},
 		})
+		require.NoError(t, err)
 	}
 
 	require.Equal(t, 128, g.Len())
@@ -175,19 +182,25 @@ func Benchmark_HSNW(b *testing.B) {
 			g.Ml = 0.5
 			g.Distance = EuclideanDistance
 			for i := 0; i < size; i++ {
-				g.Add(Node[int]{
+				err := g.Add(Node[int]{
 					Key:   i,
 					Value: Vector{float32(i)},
 				})
+				if err != nil {
+					b.Fatal(err)
+				}
 			}
 			b.ResetTimer()
 
 			b.Run("Search", func(b *testing.B) {
 				for i := 0; i < b.N; i++ {
-					g.Search(
+					_, err := g.Search(
 						[]float32{float32(i % size)},
 						4,
 					)
+					if err != nil {
+						b.Fatal(err)
+					}
 				}
 			})
 		})
@@ -213,32 +226,40 @@ func Benchmark_HNSW_1536(b *testing.B) {
 			Key:   i,
 			Value: Vector(randFloats(1536)),
 		}
-		g.Add(points[i])
+		err := g.Add(points[i])
+		if err != nil {
+			b.Fatal(err)
+		}
 	}
 	b.ResetTimer()
 
 	b.Run("Search", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
-			g.Search(
+			_, err := g.Search(
 				points[i%size].Value,
 				4,
 			)
+			if err != nil {
+				b.Fatal(err)
+			}
 		}
 	})
 }
 
 func TestGraph_DefaultCosine(t *testing.T) {
 	g := NewGraph[int]()
-	g.Add(
+	err := g.Add(
 		Node[int]{Key: 1, Value: Vector{1, 1}},
 		Node[int]{Key: 2, Value: Vector{0, 1}},
 		Node[int]{Key: 3, Value: Vector{1, -1}},
 	)
+	require.NoError(t, err)
 
-	neighbors := g.Search(
+	neighbors, err := g.Search(
 		[]float32{0.5, 0.5},
 		1,
 	)
+	require.NoError(t, err)
 
 	require.Equal(
 		t,
@@ -247,4 +268,188 @@ func TestGraph_DefaultCosine(t *testing.T) {
 		},
 		neighbors,
 	)
+}
+
+func Benchmark_Search_vs_ParallelSearch(b *testing.B) {
+	sizes := []int{100, 1000, 10000}
+	dims := []int{128, 1536}
+
+	for _, size := range sizes {
+		for _, dim := range dims {
+			b.Run(fmt.Sprintf("Size=%d/Dim=%d/Sequential", size, dim), func(b *testing.B) {
+				g := NewGraph[int]()
+				g.Distance = CosineDistance
+
+				// Generate random vectors
+				for i := 0; i < size; i++ {
+					err := g.Add(MakeNode(i, randFloats(dim)))
+					if err != nil {
+						b.Fatal(err)
+					}
+				}
+
+				query := randFloats(dim)
+				b.ResetTimer()
+
+				for i := 0; i < b.N; i++ {
+					_, err := g.Search(query, 10)
+					if err != nil {
+						b.Fatal(err)
+					}
+				}
+			})
+
+			b.Run(fmt.Sprintf("Size=%d/Dim=%d/Parallel", size, dim), func(b *testing.B) {
+				g := NewGraph[int]()
+				g.Distance = CosineDistance
+
+				// Generate random vectors
+				for i := 0; i < size; i++ {
+					err := g.Add(MakeNode(i, randFloats(dim)))
+					if err != nil {
+						b.Fatal(err)
+					}
+				}
+
+				query := randFloats(dim)
+				b.ResetTimer()
+
+				for i := 0; i < b.N; i++ {
+					_, err := g.ParallelSearch(query, 10, 0) // Use default number of workers
+					if err != nil {
+						b.Fatal(err)
+					}
+				}
+			})
+		}
+	}
+}
+
+func Benchmark_LargeGraph_Search(b *testing.B) {
+	// Skip this benchmark during regular testing as it's resource-intensive
+	if testing.Short() {
+		b.Skip("Skipping large graph benchmark in short mode")
+	}
+
+	// Create a large graph with high-dimensional vectors
+	size := 50000
+	dim := 1536
+
+	b.Run(fmt.Sprintf("Size=%d/Dim=%d", size, dim), func(b *testing.B) {
+		// Setup phase - create the graph
+		b.StopTimer()
+		g := NewGraph[int]()
+		g.Distance = CosineDistance
+		g.EfSearch = 100 // Higher efSearch for better accuracy
+
+		// Generate random vectors
+		for i := 0; i < size; i++ {
+			err := g.Add(MakeNode(i, randFloats(dim)))
+			if err != nil {
+				b.Fatal(err)
+			}
+			if i%10000 == 0 && i > 0 {
+				b.Logf("Added %d vectors", i)
+			}
+		}
+
+		query := randFloats(dim)
+		b.StartTimer()
+
+		b.Run("Sequential", func(b *testing.B) {
+			for i := 0; i < b.N; i++ {
+				_, err := g.Search(query, 10)
+				if err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+
+		b.Run("Parallel", func(b *testing.B) {
+			for i := 0; i < b.N; i++ {
+				_, err := g.ParallelSearch(query, 10, 0) // Use default number of workers
+				if err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+	})
+}
+
+func Benchmark_Delete(b *testing.B) {
+	sizes := []int{100, 1000}
+
+	for _, size := range sizes {
+		b.Run(fmt.Sprintf("Size=%d", size), func(b *testing.B) {
+			// Skip the actual benchmark iterations, just measure the setup time
+			b.StopTimer()
+
+			// Create a new graph for each iteration to avoid state issues
+			for i := 0; i < b.N; i++ {
+				g := NewGraph[int]()
+				g.Distance = CosineDistance
+
+				// Generate random vectors
+				for j := 0; j < size; j++ {
+					err := g.Add(MakeNode(j, randFloats(128)))
+					if err != nil {
+						b.Fatal(err)
+					}
+				}
+
+				b.StartTimer()
+				// Delete 10% of the nodes
+				for j := 0; j < size/10; j++ {
+					g.Delete(j)
+				}
+				b.StopTimer()
+			}
+		})
+	}
+}
+
+func TestGraphValidation(t *testing.T) {
+	t.Run("ValidConfig", func(t *testing.T) {
+		_, err := NewGraphWithConfig[int](16, 0.25, 20, CosineDistance)
+		require.NoError(t, err)
+	})
+
+	t.Run("InvalidM", func(t *testing.T) {
+		_, err := NewGraphWithConfig[int](0, 0.25, 20, CosineDistance)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "M must be greater than 0")
+	})
+
+	t.Run("InvalidMl", func(t *testing.T) {
+		_, err := NewGraphWithConfig[int](16, 0, 20, CosineDistance)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "Ml must be between 0 and 1")
+
+		_, err = NewGraphWithConfig[int](16, 1.5, 20, CosineDistance)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "Ml must be between 0 and 1")
+	})
+
+	t.Run("InvalidEfSearch", func(t *testing.T) {
+		_, err := NewGraphWithConfig[int](16, 0.25, 0, CosineDistance)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "EfSearch must be greater than 0")
+	})
+
+	t.Run("NilDistance", func(t *testing.T) {
+		_, err := NewGraphWithConfig[int](16, 0.25, 20, nil)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "Distance function must be set")
+	})
+
+	t.Run("InvalidK", func(t *testing.T) {
+		g := NewGraph[int]()
+		_, err := g.Search([]float32{1, 2, 3}, 0)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "k must be greater than 0")
+
+		_, err = g.ParallelSearch([]float32{1, 2, 3}, -1, 4)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "k must be greater than 0")
+	})
 }

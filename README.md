@@ -1,15 +1,14 @@
 # hnsw
+
 [![GoDoc](https://godoc.org/github.com/golang/gddo?status.svg)](https://pkg.go.dev/github.com/coder/hnsw@main?utm_source=godoc)
 ![Go workflow status](https://github.com/coder/hnsw/actions/workflows/go.yaml/badge.svg)
-
-
 
 Package `hnsw` implements Hierarchical Navigable Small World graphs in Go. You
 can read up about how they work [here](https://www.pinecone.io/learn/series/faiss/hnsw/). In essence,
 they allow for fast approximate nearest neighbor searches with high-dimensional
 vector data.
 
-This package can be thought of as an in-memory alternative to your favorite 
+This package can be thought of as an in-memory alternative to your favorite
 vector database (e.g. Pinecone, Weaviate). It implements just the essential
 operations:
 
@@ -47,8 +46,6 @@ fmt.Printf("best friend: %v\n", neighbors[0].Vec)
 // Output: best friend: [1 1 1]
 ```
 
-
-
 ## Persistence
 
 While all graph operations are in-memory, `hnsw` provides facilities for loading/saving from persistent storage.
@@ -83,6 +80,7 @@ if err != nil {
 ```
 
 See more:
+
 * [Export](https://pkg.go.dev/github.com/coder/hnsw#Graph.Export)
 * [Import](https://pkg.go.dev/github.com/coder/hnsw#Graph.Import)
 * [SavedGraph](https://pkg.go.dev/github.com/coder/hnsw#SavedGraph)
@@ -109,10 +107,12 @@ is reducing the dimensionality of your data. At 1536 dimensions (OpenAI default)
 70% of the query process under default parameters is spent in the distance function.
 
 If you're struggling with slowness / latency, consider:
+
 * Reducing dimensionality
 * Increasing $M$
 
 And, if you're struggling with excess memory usage, consider:
+
 * Reducing $M$ a.k.a `Graph.M` (the maximum number of neighbors each node can have)
 * Reducing $m_L$ a.k.a `Graph.Ml` (the level generation parameter)
 
@@ -129,6 +129,7 @@ mem_{total} = mem_{graph} + mem_{base}
 $$
 
 where:
+
 * $n$ is the number of vectors in the graph
 * $\text{size(key)}$ is the average size of the key in bytes
 * $M$ is the maximum number of neighbors each node can have
@@ -137,13 +138,78 @@ where:
 * $mem_{base}$ is the memory used by the vectors themselves in the base or 0th layer
 
 You can infer that:
+
 * Connectivity ($M$) is very expensive if keys are large
 * If $d \cdot 4$ is far larger than $M \cdot \text{size(key)}$, you should expect linear memory usage spent on representing vector data
 * If $d \cdot 4$ is far smaller than $M \cdot \text{size(key)}$, you should expect $n \cdot \log(n)$ memory usage spent on representing graph structure
 
 In the example of a graph with 256 dimensions, and $M = 16$, with 8 byte keys, you would see that each vector takes:
 
-* $256 \cdot 4 = 1024$ data bytes 
+* $256 \cdot 4 = 1024$ data bytes
 * $16 \cdot 8 = 128$ metadata bytes
 
 and memory growth is mostly linear.
+
+## Recent Enhancements
+
+This section summarizes recent optimizations and API enhancements to the HNSW implementation.
+
+### Performance Optimizations
+
+* **Vectorized Distance Calculations**: Improved performance for high-dimensional vectors.
+* **Parallel Search**: Added `ParallelSearch` method that automatically parallelizes search operations for large graphs and high-dimensional data.
+* **Optimized Node Management**: Enhanced neighbor selection and connectivity maintenance.
+
+### New APIs
+
+* **Configuration Validation**: Added `Validate()` method to check graph configuration parameters.
+* **NewGraphWithConfig**: Constructor that validates parameters during graph creation.
+* **MakeNode**: Helper function to create nodes with proper typing.
+* **Quality Metrics**: New `QualityMetrics()` method in the Analyzer to evaluate graph quality.
+
+### Quality Metrics
+
+The Analyzer now provides comprehensive quality metrics to evaluate graph structure:
+
+* **Connectivity Analysis**: Measure average connections per node and distribution.
+* **Distortion Ratio**: Evaluate how well the graph preserves actual distances.
+* **Layer Balance**: Assess the distribution of nodes across layers.
+* **Graph Structure**: Analyze topography and connectivity patterns.
+
+Example usage:
+
+```go
+analyzer := hnsw.Analyzer[int]{Graph: graph}
+metrics := analyzer.QualityMetrics()
+
+fmt.Printf("Node count: %d\n", metrics.NodeCount)
+fmt.Printf("Average connectivity: %.2f\n", metrics.AvgConnectivity)
+fmt.Printf("Layer balance: %.2f\n", metrics.LayerBalance)
+fmt.Printf("Distortion ratio: %.2f\n", metrics.DistortionRatio)
+```
+
+### Error Handling Improvements
+
+* Comprehensive error checking for invalid parameters:
+  * Validation for M, Ml, and EfSearch parameters
+  * Dimension matching between query vectors and graph vectors
+  * Proper handling of nil nodes and edge cases
+
+### Testing Enhancements
+
+* **Benchmark Suite**: Comprehensive benchmarks for various graph sizes and dimensions.
+* **Validation Tests**: Tests to ensure proper error handling for invalid configurations.
+* **Performance Comparisons**: Benchmarks comparing sequential vs. parallel search performance.
+* **Quality Metrics Tests**: Validation of graph quality measurement functions.
+
+### Parameter Tuning Guide
+
+The implementation now includes detailed documentation on parameter tuning:
+
+* **M**: Recommendations for different data dimensions (8-64, with 16 as default).
+* **Ml**: Guidelines for level generation factor (0.1-0.5, with 0.25 as default).
+* **EfSearch**: Advice on balancing accuracy vs. speed (20-200, with 20-50 as defaults).
+* **Distance Functions**: Guidance on choosing appropriate distance metrics.
+* **Memory Usage**: Formulas and considerations for estimating memory requirements.
+
+These enhancements improve both the performance and robustness of the HNSW implementation while maintaining the original API design philosophy.

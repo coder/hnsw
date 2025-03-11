@@ -139,15 +139,17 @@ func TestGraph_ExportImport(t *testing.T) {
 
 	requireGraphApproxEquals(t, g1, g2)
 
-	n1 := g1.Search(
+	n1, err := g1.Search(
 		[]float32{0.5},
 		10,
 	)
+	require.NoError(t, err)
 
-	n2 := g2.Search(
+	n2, err := g2.Search(
 		[]float32{0.5},
 		10,
 	)
+	require.NoError(t, err)
 
 	require.Equal(t, n1, n2)
 

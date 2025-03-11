@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"math"
 	"math/rand"
+	"runtime"
 	"slices"
+	"sync"
 	"time"
 
 	"github.com/coder/hnsw/heap"
@@ -37,6 +39,10 @@ type layerNode[K cmp.Ordered] struct {
 // addNeighbor adds a o neighbor to the node, replacing the neighbor
 // with the worst distance if the neighbor set is full.
 func (n *layerNode[K]) addNeighbor(newNode *layerNode[K], m int, dist DistanceFunc) {
+	if n == nil || newNode == nil {
+		return
+	}
+
 	if n.neighbors == nil {
 		n.neighbors = make(map[K]*layerNode[K], m)
 	}
@@ -52,6 +58,9 @@ func (n *layerNode[K]) addNeighbor(newNode *layerNode[K], m int, dist DistanceFu
 		worst     *layerNode[K]
 	)
 	for _, neighbor := range n.neighbors {
+		if neighbor == nil {
+			continue
+		}
 		d := dist(neighbor.Value, n.Value)
 		// d > worstDist may always be false if the distance function
 		// returns NaN, e.g., when the embeddings are zero.
@@ -61,10 +70,14 @@ func (n *layerNode[K]) addNeighbor(newNode *layerNode[K], m int, dist DistanceFu
 		}
 	}
 
-	delete(n.neighbors, worst.Key)
-	// Delete backlink from the worst neighbor.
-	delete(worst.neighbors, n.Key)
-	worst.replenish(m)
+	if worst != nil {
+		delete(n.neighbors, worst.Key)
+		// Delete backlink from the worst neighbor.
+		if worst.neighbors != nil {
+			delete(worst.neighbors, n.Key)
+		}
+		worst.replenish(m)
+	}
 }
 
 type searchCandidate[K cmp.Ordered] struct {
@@ -85,6 +98,10 @@ func (n *layerNode[K]) search(
 	target Vector,
 	distance DistanceFunc,
 ) []searchCandidate[K] {
+	if n == nil || distance == nil {
+		return nil
+	}
+
 	// This is a basic greedy algorithm to find the entry point at the given level
 	// that is closest to the target node.
 	candidates := heap.Heap[searchCandidate[K]]{}
@@ -111,19 +128,23 @@ func (n *layerNode[K]) search(
 			improved = false
 		)
 
+		if current == nil || current.neighbors == nil {
+			continue
+		}
+
 		// We iterate the map in a sorted, deterministic fashion for
 		// tests.
 		neighborKeys := maps.Keys(current.neighbors)
 		slices.Sort(neighborKeys)
 		for _, neighborID := range neighborKeys {
 			neighbor := current.neighbors[neighborID]
-			if visited[neighborID] {
+			if neighbor == nil || visited[neighborID] {
 				continue
 			}
 			visited[neighborID] = true
 
 			dist := distance(neighbor.Value, target)
-			improved = improved || dist < result.Min().dist
+			improved = improved || (result.Len() > 0 && dist < result.Min().dist)
 			if result.Len() < k {
 				result.Push(searchCandidate[K]{node: neighbor, dist: dist})
 			} else if dist < result.Max().dist {
@@ -154,21 +175,45 @@ func (n *layerNode[K]) replenish(m int) {
 	}
 
 	// Restore connectivity by adding new neighbors.
-	// This is a naive implementation that could be improved by
-	// using a priority queue to find the best candidates.
+	// Use a priority queue to find the best candidates based on distance.
+	candidates := heap.Heap[searchCandidate[K]]{}
+	candidates.Init(make([]searchCandidate[K], 0, m*2))
+
+	// First, collect all potential candidates (neighbors of neighbors)
+	visited := make(map[K]bool)
+	visited[n.Key] = true // Don't add self
+
+	// Mark existing neighbors as visited
+	for k := range n.neighbors {
+		visited[k] = true
+	}
+
+	// Add neighbors of neighbors as candidates
 	for _, neighbor := range n.neighbors {
-		for key, candidate := range neighbor.neighbors {
-			if _, ok := n.neighbors[key]; ok {
-				// do not add duplicates
+		if neighbor == nil || neighbor.neighbors == nil {
+			continue
+		}
+
+		for k, candidate := range neighbor.neighbors {
+			if visited[k] || candidate == nil {
 				continue
 			}
-			if candidate == n {
-				continue
-			}
-			n.addNeighbor(candidate, m, CosineDistance)
-			if len(n.neighbors) >= m {
-				return
-			}
+			visited[k] = true
+
+			// Calculate distance to this node
+			dist := CosineDistance(candidate.Value, n.Value)
+			candidates.Push(searchCandidate[K]{
+				node: candidate,
+				dist: dist,
+			})
+		}
+	}
+
+	// Add the best candidates until we reach the desired number of neighbors
+	for candidates.Len() > 0 && len(n.neighbors) < m {
+		best := candidates.Pop()
+		if best.node != nil {
+			n.addNeighbor(best.node, m, CosineDistance)
 		}
 	}
 }
@@ -176,7 +221,14 @@ func (n *layerNode[K]) replenish(m int) {
 // isolates remove the node from the graph by removing all connections
 // to neighbors.
 func (n *layerNode[K]) isolate(m int) {
+	if n == nil || n.neighbors == nil {
+		return
+	}
+
 	for _, neighbor := range n.neighbors {
+		if neighbor == nil || neighbor.neighbors == nil {
+			continue
+		}
 		delete(neighbor.neighbors, n.Key)
 		neighbor.replenish(m)
 	}
@@ -215,6 +267,41 @@ func (l *layer[K]) size() int {
 // Graph is a Hierarchical Navigable Small World graph.
 // All public parameters must be set before adding nodes to the graph.
 // K is cmp.Ordered instead of of comparable so that they can be sorted.
+//
+// Parameter Tuning Guide:
+//
+// M: The maximum number of connections per node.
+//   - Higher values improve search accuracy but increase memory usage and build time.
+//   - Lower values reduce memory usage but may decrease search accuracy.
+//   - Recommended range: 8-64, with 16 being a good default for most use cases.
+//   - For high-dimensional data (>1000 dimensions), higher M values (32-64) often work better.
+//   - For lower-dimensional data (<100 dimensions), lower M values (8-16) are usually sufficient.
+//
+// Ml: The level generation factor, controlling the graph hierarchy.
+//   - Determines the probability of a node being promoted to higher layers.
+//   - Lower values (e.g., 0.1) create more layers with fewer nodes in higher layers.
+//   - Higher values (e.g., 0.5) create fewer layers with more nodes in higher layers.
+//   - Recommended range: 0.1-0.5, with 0.25 being a good default.
+//   - For very large graphs (>1M nodes), lower values (0.1-0.2) often work better.
+//
+// EfSearch: The size of the dynamic candidate list during search.
+//   - Higher values improve search accuracy but increase search time.
+//   - Lower values speed up search but may decrease accuracy.
+//   - Recommended range: 20-200, with 20-50 being good defaults.
+//   - For applications requiring high recall, use higher values (100-200).
+//   - For applications prioritizing speed, use lower values (20-50).
+//
+// Distance: The distance function used to compare vectors.
+//   - CosineDistance is recommended for normalized embeddings (e.g., OpenAI embeddings).
+//   - EuclideanDistance is recommended for non-normalized embeddings.
+//   - The choice of distance function should match the properties of your data.
+//
+// Memory Usage:
+// The memory overhead of a graph is approximately:
+//   - Base layer: n * d * 4 bytes (for the vectors themselves)
+//   - Graph structure: n * log(n) * sizeof(key) * M bytes
+//
+// Where n is the number of vectors, d is the dimensionality, and sizeof(key) is the size of the key in bytes.
 type Graph[K cmp.Ordered] struct {
 	// Distance is the distance function used to compare embeddings.
 	Distance DistanceFunc
@@ -257,15 +344,33 @@ func NewGraph[K cmp.Ordered]() *Graph[K] {
 	}
 }
 
+// NewGraphWithConfig returns a new graph with the specified parameters.
+// It validates the configuration and returns an error if any parameter is invalid.
+func NewGraphWithConfig[K cmp.Ordered](m int, ml float64, efSearch int, distance DistanceFunc) (*Graph[K], error) {
+	g := &Graph[K]{
+		M:        m,
+		Ml:       ml,
+		Distance: distance,
+		EfSearch: efSearch,
+		Rng:      defaultRand(),
+	}
+
+	if err := g.Validate(); err != nil {
+		return nil, err
+	}
+
+	return g, nil
+}
+
 // maxLevel returns an upper-bound on the number of levels in the graph
 // based on the size of the base layer.
-func maxLevel(ml float64, numNodes int) int {
+func maxLevel(ml float64, numNodes int) (int, error) {
 	if ml == 0 {
-		panic("ml must be greater than 0")
+		return 0, fmt.Errorf("ml must be greater than 0")
 	}
 
 	if numNodes == 0 {
-		return 1
+		return 1, nil
 	}
 
 	l := math.Log(float64(numNodes))
@@ -273,19 +378,23 @@ func maxLevel(ml float64, numNodes int) int {
 
 	m := int(math.Round(l)) + 1
 
-	return m
+	return m, nil
 }
 
 // randomLevel generates a random level for a new node.
-func (h *Graph[K]) randomLevel() int {
+func (h *Graph[K]) randomLevel() (int, error) {
 	// max avoids having to accept an additional parameter for the maximum level
 	// by calculating a probably good one from the size of the base layer.
 	max := 1
 	if len(h.layers) > 0 {
 		if h.Ml == 0 {
-			panic("(*Graph).Ml must be greater than 0")
+			return 0, fmt.Errorf("(*Graph).Ml must be greater than 0")
 		}
-		max = maxLevel(h.Ml, h.layers[0].size())
+		var err error
+		max, err = maxLevel(h.Ml, h.layers[0].size())
+		if err != nil {
+			return 0, err
+		}
 	}
 
 	for level := 0; level < max; level++ {
@@ -294,21 +403,11 @@ func (h *Graph[K]) randomLevel() int {
 		}
 		r := h.Rng.Float64()
 		if r > h.Ml {
-			return level
+			return level, nil
 		}
 	}
 
-	return max
-}
-
-func (g *Graph[K]) assertDims(n Vector) {
-	if len(g.layers) == 0 {
-		return
-	}
-	hasDims := g.Dims()
-	if hasDims != len(n) {
-		panic(fmt.Sprint("embedding dimension mismatch: ", hasDims, " != ", len(n)))
-	}
+	return max, nil
 }
 
 // Dims returns the number of dimensions in the graph, or
@@ -326,20 +425,34 @@ func ptr[T any](v T) *T {
 
 // Add inserts nodes into the graph.
 // If another node with the same ID exists, it is replaced.
-func (g *Graph[K]) Add(nodes ...Node[K]) {
+func (g *Graph[K]) Add(nodes ...Node[K]) error {
+	if err := g.Validate(); err != nil {
+		return err
+	}
+
 	for _, node := range nodes {
 		key := node.Key
 		vec := node.Value
 
-		g.assertDims(vec)
-		insertLevel := g.randomLevel()
+		// Check dimensions
+		if len(g.layers) > 0 {
+			hasDims := g.Dims()
+			if hasDims != len(vec) {
+				return fmt.Errorf("embedding dimension mismatch: %d != %d", hasDims, len(vec))
+			}
+		}
+
+		insertLevel, err := g.randomLevel()
+		if err != nil {
+			return err
+		}
 		// Create layers that don't exist yet.
 		for insertLevel >= len(g.layers) {
 			g.layers = append(g.layers, &layer[K]{})
 		}
 
 		if insertLevel < 0 {
-			panic("invalid level")
+			return fmt.Errorf("invalid level: %d", insertLevel)
 		}
 
 		var elevator *K
@@ -372,15 +485,11 @@ func (g *Graph[K]) Add(nodes ...Node[K]) {
 				searchPoint = layer.nodes[*elevator]
 			}
 
-			if g.Distance == nil {
-				panic("(*Graph).Distance must be set")
-			}
-
 			neighborhood := searchPoint.search(g.M, g.EfSearch, vec, g.Distance)
 			if len(neighborhood) == 0 {
 				// This should never happen because the searchPoint itself
 				// should be in the result set.
-				panic("no nodes found")
+				return fmt.Errorf("no nodes found in neighborhood search")
 			}
 
 			// Re-set the elevator node for the next layer.
@@ -402,16 +511,33 @@ func (g *Graph[K]) Add(nodes ...Node[K]) {
 
 		// Invariant check: the node should have been added to the graph.
 		if g.Len() != preLen+1 {
-			panic("node not added")
+			return fmt.Errorf("node not added")
 		}
 	}
+
+	return nil
 }
 
 // Search finds the k nearest neighbors from the target node.
-func (h *Graph[K]) Search(near Vector, k int) []Node[K] {
-	h.assertDims(near)
+func (h *Graph[K]) Search(near Vector, k int) ([]Node[K], error) {
+	if err := h.Validate(); err != nil {
+		return nil, err
+	}
+
+	if k <= 0 {
+		return nil, fmt.Errorf("k must be greater than 0, got %d", k)
+	}
+
+	// Check dimensions
+	if len(h.layers) > 0 {
+		hasDims := h.Dims()
+		if hasDims != len(near) {
+			return nil, fmt.Errorf("embedding dimension mismatch: %d != %d", hasDims, len(near))
+		}
+	}
+
 	if len(h.layers) == 0 {
-		return nil
+		return nil, nil
 	}
 
 	var (
@@ -440,10 +566,204 @@ func (h *Graph[K]) Search(near Vector, k int) []Node[K] {
 			out = append(out, node.node.Node)
 		}
 
-		return out
+		return out, nil
 	}
 
-	panic("unreachable")
+	return nil, fmt.Errorf("unreachable code reached")
+}
+
+// ParallelSearch finds the k nearest neighbors from the target node using parallel processing.
+// It's optimized for large graphs and high-dimensional data.
+// The numWorkers parameter controls the level of parallelism. If set to 0, it defaults to
+// the number of CPU cores.
+func (h *Graph[K]) ParallelSearch(near Vector, k int, numWorkers int) ([]Node[K], error) {
+	if err := h.Validate(); err != nil {
+		return nil, err
+	}
+
+	if k <= 0 {
+		return nil, fmt.Errorf("k must be greater than 0, got %d", k)
+	}
+
+	// Check dimensions
+	if len(h.layers) > 0 {
+		hasDims := h.Dims()
+		if hasDims != len(near) {
+			return nil, fmt.Errorf("embedding dimension mismatch: %d != %d", hasDims, len(near))
+		}
+	}
+
+	if len(h.layers) == 0 {
+		return nil, nil
+	}
+
+	// For small graphs or low dimensions, use the sequential search
+	// This avoids the overhead of parallelism for small workloads
+	if len(h.layers[0].nodes) < 5000 || len(near) < 512 {
+		return h.Search(near, k)
+	}
+
+	// Default to number of CPU cores if numWorkers is not specified
+	if numWorkers <= 0 {
+		numWorkers = runtime.NumCPU()
+	}
+
+	// Use the same traversal logic as the sequential search
+	var (
+		efSearch = h.EfSearch
+		elevator *K
+	)
+
+	// First phase: descend through layers to find entry point for base layer
+	for layer := len(h.layers) - 1; layer > 0; layer-- {
+		searchPoint := h.layers[layer].entry()
+		if elevator != nil {
+			searchPoint = h.layers[layer].nodes[*elevator]
+		}
+
+		nodes := searchPoint.search(1, efSearch, near, h.Distance)
+		elevator = ptr(nodes[0].node.Key)
+	}
+
+	// For the base layer, use the entry point found by traversing the upper layers
+	baseLayer := h.layers[0]
+	searchPoint := baseLayer.entry()
+	if elevator != nil {
+		searchPoint = baseLayer.nodes[*elevator]
+	}
+
+	// Use a parallel version of the search algorithm
+	// This is a simplified version that focuses on parallelizing the distance calculations
+	candidates := heap.Heap[searchCandidate[K]]{}
+	candidates.Init(make([]searchCandidate[K], 0, efSearch))
+	candidates.Push(
+		searchCandidate[K]{
+			node: searchPoint,
+			dist: h.Distance(searchPoint.Value, near),
+		},
+	)
+
+	var (
+		result  = heap.Heap[searchCandidate[K]]{}
+		visited = make(map[K]bool)
+	)
+	result.Init(make([]searchCandidate[K], 0, k))
+
+	// Begin with the entry node in the result set
+	result.Push(candidates.Min())
+	visited[searchPoint.Key] = true
+
+	for candidates.Len() > 0 {
+		var (
+			current  = candidates.Pop().node
+			improved = false
+		)
+
+		// Get all neighbors to process
+		neighborKeys := maps.Keys(current.neighbors)
+		slices.Sort(neighborKeys)
+
+		// Filter out already visited neighbors
+		unvisitedNeighbors := make([]*layerNode[K], 0, len(neighborKeys))
+		for _, neighborID := range neighborKeys {
+			if visited[neighborID] {
+				continue
+			}
+			visited[neighborID] = true
+			unvisitedNeighbors = append(unvisitedNeighbors, current.neighbors[neighborID])
+		}
+
+		// If we have enough neighbors, process them in parallel
+		if len(unvisitedNeighbors) >= numWorkers {
+			// Calculate distances in parallel
+			distChan := make(chan struct {
+				node *layerNode[K]
+				dist float32
+			}, len(unvisitedNeighbors))
+
+			// Divide work among workers
+			var wg sync.WaitGroup
+			neighborsPerWorker := (len(unvisitedNeighbors) + numWorkers - 1) / numWorkers
+
+			for i := 0; i < numWorkers && i*neighborsPerWorker < len(unvisitedNeighbors); i++ {
+				start := i * neighborsPerWorker
+				end := (i + 1) * neighborsPerWorker
+				if end > len(unvisitedNeighbors) {
+					end = len(unvisitedNeighbors)
+				}
+
+				wg.Add(1)
+				go func(neighbors []*layerNode[K]) {
+					defer wg.Done()
+					for _, neighbor := range neighbors {
+						dist := h.Distance(neighbor.Value, near)
+						distChan <- struct {
+							node *layerNode[K]
+							dist float32
+						}{node: neighbor, dist: dist}
+					}
+				}(unvisitedNeighbors[start:end])
+			}
+
+			// Close channel when all workers are done
+			go func() {
+				wg.Wait()
+				close(distChan)
+			}()
+
+			// Process results as they come in
+			for res := range distChan {
+				dist := res.dist
+				neighbor := res.node
+
+				improved = improved || dist < result.Min().dist
+				if result.Len() < k {
+					result.Push(searchCandidate[K]{node: neighbor, dist: dist})
+				} else if dist < result.Max().dist {
+					result.PopLast()
+					result.Push(searchCandidate[K]{node: neighbor, dist: dist})
+				}
+
+				candidates.Push(searchCandidate[K]{node: neighbor, dist: dist})
+				if candidates.Len() > efSearch {
+					candidates.PopLast()
+				}
+			}
+		} else {
+			// For small number of neighbors, process sequentially
+			for _, neighbor := range unvisitedNeighbors {
+				dist := h.Distance(neighbor.Value, near)
+
+				improved = improved || dist < result.Min().dist
+				if result.Len() < k {
+					result.Push(searchCandidate[K]{node: neighbor, dist: dist})
+				} else if dist < result.Max().dist {
+					result.PopLast()
+					result.Push(searchCandidate[K]{node: neighbor, dist: dist})
+				}
+
+				candidates.Push(searchCandidate[K]{node: neighbor, dist: dist})
+				if candidates.Len() > efSearch {
+					candidates.PopLast()
+				}
+			}
+		}
+
+		// Termination condition: no improvement in distance and at least
+		// k candidates in the result set.
+		if !improved && result.Len() >= k {
+			break
+		}
+	}
+
+	// Convert to output format
+	candidates = result
+	out := make([]Node[K], 0, candidates.Len())
+	for _, candidate := range candidates.Slice() {
+		out = append(out, candidate.node.Node)
+	}
+
+	return out, nil
 }
 
 // Len returns the number of nodes in the graph.
@@ -487,4 +807,26 @@ func (h *Graph[K]) Lookup(key K) (Vector, bool) {
 		return nil, false
 	}
 	return node.Value, ok
+}
+
+// Validate checks if the graph configuration is valid.
+// It returns an error if any parameter is invalid.
+func (g *Graph[K]) Validate() error {
+	if g.M <= 0 {
+		return fmt.Errorf("M must be greater than 0, got %d", g.M)
+	}
+
+	if g.Ml <= 0 || g.Ml >= 1 {
+		return fmt.Errorf("Ml must be between 0 and 1 (exclusive), got %f", g.Ml)
+	}
+
+	if g.EfSearch <= 0 {
+		return fmt.Errorf("EfSearch must be greater than 0, got %d", g.EfSearch)
+	}
+
+	if g.Distance == nil {
+		return fmt.Errorf("Distance function must be set")
+	}
+
+	return nil
 }

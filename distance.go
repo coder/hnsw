@@ -1,7 +1,6 @@
 package hnsw
 
 import (
-	"math"
 	"reflect"
 
 	"github.com/viterin/vek/vek32"
@@ -17,13 +16,8 @@ func CosineDistance(a, b []float32) float32 {
 
 // EuclideanDistance computes the Euclidean distance between two vectors.
 func EuclideanDistance(a, b []float32) float32 {
-	// TODO: can we speedup with vek?
-	var sum float32 = 0
-	for i := range a {
-		diff := a[i] - b[i]
-		sum += diff * diff
-	}
-	return float32(math.Sqrt(float64(sum)))
+	// Use vek32's vectorized implementation
+	return vek32.Distance(a, b)
 }
 
 var distanceFuncs = map[string]DistanceFunc{
