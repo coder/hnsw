@@ -26,7 +26,7 @@ operations:
 
 ## Usage
 
-```
+```text
 go get github.com/coder/hnsw@main
 ```
 
@@ -88,7 +88,7 @@ See more:
 We use a fast binary encoding for the graph, so you can expect to save/load
 nearly at disk speed. On my M3 Macbook I get these benchmark results:
 
-```
+```text
 goos: darwin
 goarch: arm64
 pkg: github.com/coder/hnsw
@@ -150,26 +150,33 @@ In the example of a graph with 256 dimensions, and $M = 16$, with 8 byte keys, y
 
 and memory growth is mostly linear.
 
-## Recent Enhancements
+---
 
-This section summarizes recent optimizations and API enhancements to the HNSW implementation.
+## Recent Changes (TFMV)
 
-### Performance Optimizations
+### Error Handling Improvements
+
+* Comprehensive error checking for invalid parameters:
+  * Validation for M, Ml, and EfSearch parameters
+  * Dimension matching between query vectors and graph vectors
+  * Proper handling of nil nodes and edge cases
+
+### Experimental Performance Optimizations
 
 * **Vectorized Distance Calculations**: Improved performance for high-dimensional vectors.
 * **Parallel Search**: Added `ParallelSearch` method that automatically parallelizes search operations for large graphs and high-dimensional data.
 * **Optimized Node Management**: Enhanced neighbor selection and connectivity maintenance.
 
-### New APIs
+### Experimental New APIs
 
 * **Configuration Validation**: Added `Validate()` method to check graph configuration parameters.
 * **NewGraphWithConfig**: Constructor that validates parameters during graph creation.
 * **MakeNode**: Helper function to create nodes with proper typing.
 * **Quality Metrics**: New `QualityMetrics()` method in the Analyzer to evaluate graph quality.
 
-### Quality Metrics
+### Experimental Quality Metrics
 
-The Analyzer now provides comprehensive quality metrics to evaluate graph structure:
+The Analyzer now provides experimental quality metrics to evaluate graph structure:
 
 * **Connectivity Analysis**: Measure average connections per node and distribution.
 * **Distortion Ratio**: Evaluate how well the graph preserves actual distances.
@@ -188,28 +195,9 @@ fmt.Printf("Layer balance: %.2f\n", metrics.LayerBalance)
 fmt.Printf("Distortion ratio: %.2f\n", metrics.DistortionRatio)
 ```
 
-### Error Handling Improvements
-
-* Comprehensive error checking for invalid parameters:
-  * Validation for M, Ml, and EfSearch parameters
-  * Dimension matching between query vectors and graph vectors
-  * Proper handling of nil nodes and edge cases
-
-### Testing Enhancements
+### Testing
 
 * **Benchmark Suite**: Comprehensive benchmarks for various graph sizes and dimensions.
 * **Validation Tests**: Tests to ensure proper error handling for invalid configurations.
 * **Performance Comparisons**: Benchmarks comparing sequential vs. parallel search performance.
 * **Quality Metrics Tests**: Validation of graph quality measurement functions.
-
-### Parameter Tuning Guide
-
-The implementation now includes detailed documentation on parameter tuning:
-
-* **M**: Recommendations for different data dimensions (8-64, with 16 as default).
-* **Ml**: Guidelines for level generation factor (0.1-0.5, with 0.25 as default).
-* **EfSearch**: Advice on balancing accuracy vs. speed (20-200, with 20-50 as defaults).
-* **Distance Functions**: Guidance on choosing appropriate distance metrics.
-* **Memory Usage**: Formulas and considerations for estimating memory requirements.
-
-These enhancements improve both the performance and robustness of the HNSW implementation while maintaining the original API design philosophy.
