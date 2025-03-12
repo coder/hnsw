@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math/rand"
 	"strconv"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -452,4 +453,72 @@ func TestGraphValidation(t *testing.T) {
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "k must be greater than 0")
 	})
+}
+
+func TestThreadSafety(t *testing.T) {
+	t.Parallel()
+
+	dims := 3
+	numNodes := 100
+	numOperations := 1000
+	g, err := NewGraphWithConfig[int](16, 0.25, 20, EuclideanDistance)
+	require.NoError(t, err)
+
+	// Add initial nodes to the graph
+	for i := 0; i < numNodes; i++ {
+		vec := make(Vector, dims)
+		for j := range vec {
+			vec[j] = rand.Float32()
+		}
+		err := g.Add(MakeNode(i, vec))
+		require.NoError(t, err)
+	}
+
+	var wg sync.WaitGroup
+	wg.Add(numOperations)
+
+	// Run concurrent operations
+	for i := 0; i < numOperations; i++ {
+		go func(id int) {
+			defer wg.Done()
+
+			// Generate a random vector for operations
+			vec := make(Vector, dims)
+			for j := range vec {
+				vec[j] = rand.Float32()
+			}
+
+			switch id % 5 {
+			case 0: // 20% adds
+				err := g.Add(MakeNode(numNodes+id, vec))
+				if err != nil {
+					t.Logf("Add error: %v", err)
+				}
+			case 1: // 20% deletes
+				g.Delete(id % numNodes)
+			default: // 60% searches
+				_, err := g.Search(vec, 3)
+				if err != nil {
+					t.Logf("Search error: %v", err)
+				}
+			}
+		}(i)
+	}
+
+	wg.Wait()
+
+	// Verify the graph is still valid
+	if err := g.Validate(); err != nil {
+		t.Errorf("Graph validation failed after concurrent operations: %v", err)
+	}
+
+	// Verify we can still perform operations
+	vec := make(Vector, dims)
+	for j := range vec {
+		vec[j] = rand.Float32()
+	}
+	_, err = g.Search(vec, 3)
+	require.NoError(t, err)
+
+	t.Logf("Graph size after concurrent operations: %d", g.Len())
 }

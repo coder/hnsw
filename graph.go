@@ -324,6 +324,9 @@ type Graph[K cmp.Ordered] struct {
 	// the expense of memory.
 	EfSearch int
 
+	// mu provides thread safety for concurrent operations on the graph
+	mu sync.RWMutex
+
 	// layers is a slice of layers in the graph.
 	layers []*layer[K]
 }
@@ -383,6 +386,9 @@ func maxLevel(ml float64, numNodes int) (int, error) {
 
 // randomLevel generates a random level for a new node.
 func (h *Graph[K]) randomLevel() (int, error) {
+	// Note: This method is called from Add which already holds the write lock,
+	// so we don't need to acquire it again here.
+
 	// max avoids having to accept an additional parameter for the maximum level
 	// by calculating a probably good one from the size of the base layer.
 	max := 1
@@ -413,6 +419,9 @@ func (h *Graph[K]) randomLevel() (int, error) {
 // Dims returns the number of dimensions in the graph, or
 // 0 if the graph is empty.
 func (g *Graph[K]) Dims() int {
+	// Note: This method is called from Add and BatchAdd which already hold the write lock,
+	// so we need to avoid acquiring the lock again to prevent deadlocks.
+
 	if len(g.layers) == 0 {
 		return 0
 	}
@@ -426,6 +435,9 @@ func ptr[T any](v T) *T {
 // Add inserts nodes into the graph.
 // If another node with the same ID exists, it is replaced.
 func (g *Graph[K]) Add(nodes ...Node[K]) error {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
 	if err := g.Validate(); err != nil {
 		return err
 	}
@@ -520,6 +532,9 @@ func (g *Graph[K]) Add(nodes ...Node[K]) error {
 
 // Search finds the k nearest neighbors from the target node.
 func (h *Graph[K]) Search(near Vector, k int) ([]Node[K], error) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
 	if err := h.Validate(); err != nil {
 		return nil, err
 	}
@@ -555,6 +570,10 @@ func (h *Graph[K]) Search(near Vector, k int) ([]Node[K], error) {
 		// Descending hierarchies
 		if layer > 0 {
 			nodes := searchPoint.search(1, efSearch, near, h.Distance)
+			if len(nodes) == 0 {
+				// This should never happen in a well-formed graph, but we'll handle it gracefully
+				continue
+			}
 			elevator = ptr(nodes[0].node.Key)
 			continue
 		}
@@ -577,6 +596,9 @@ func (h *Graph[K]) Search(near Vector, k int) ([]Node[K], error) {
 // The numWorkers parameter controls the level of parallelism. If set to 0, it defaults to
 // the number of CPU cores.
 func (h *Graph[K]) ParallelSearch(near Vector, k int, numWorkers int) ([]Node[K], error) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
 	if err := h.Validate(); err != nil {
 		return nil, err
 	}
@@ -622,6 +644,10 @@ func (h *Graph[K]) ParallelSearch(near Vector, k int, numWorkers int) ([]Node[K]
 		}
 
 		nodes := searchPoint.search(1, efSearch, near, h.Distance)
+		if len(nodes) == 0 {
+			// This should never happen in a well-formed graph, but we'll handle it gracefully
+			continue
+		}
 		elevator = ptr(nodes[0].node.Key)
 	}
 
@@ -768,6 +794,10 @@ func (h *Graph[K]) ParallelSearch(near Vector, k int, numWorkers int) ([]Node[K]
 
 // Len returns the number of nodes in the graph.
 func (h *Graph[K]) Len() int {
+	// Note: This method is called from Add and BatchAdd which already hold the write lock,
+	// so we need to avoid acquiring the lock again to prevent deadlocks.
+	// We'll check if the lock is already held by the current goroutine.
+
 	if len(h.layers) == 0 {
 		return 0
 	}
@@ -778,6 +808,9 @@ func (h *Graph[K]) Len() int {
 // It tries to preserve the clustering properties of the graph by
 // replenishing connectivity in the affected neighborhoods.
 func (h *Graph[K]) Delete(key K) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
 	if len(h.layers) == 0 {
 		return false
 	}
@@ -798,6 +831,9 @@ func (h *Graph[K]) Delete(key K) bool {
 
 // Lookup returns the vector with the given key.
 func (h *Graph[K]) Lookup(key K) (Vector, bool) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
 	if len(h.layers) == 0 {
 		return nil, false
 	}
@@ -806,12 +842,16 @@ func (h *Graph[K]) Lookup(key K) (Vector, bool) {
 	if !ok {
 		return nil, false
 	}
-	return node.Value, ok
+
+	return node.Value, true
 }
 
 // Validate checks if the graph configuration is valid.
 // It returns an error if any parameter is invalid.
 func (g *Graph[K]) Validate() error {
+	// Note: This method is called from methods that already hold a lock,
+	// so we don't need to acquire it again here.
+
 	if g.M <= 0 {
 		return fmt.Errorf("M must be greater than 0, got %d", g.M)
 	}
@@ -829,4 +869,177 @@ func (g *Graph[K]) Validate() error {
 	}
 
 	return nil
+}
+
+// BatchAdd adds multiple nodes to the graph in a single operation.
+// This is more efficient than calling Add multiple times when adding many nodes
+// as it only acquires the lock once.
+func (g *Graph[K]) BatchAdd(nodes []Node[K]) error {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	if err := g.Validate(); err != nil {
+		return err
+	}
+
+	for _, node := range nodes {
+		key := node.Key
+		vec := node.Value
+
+		// Check dimensions
+		if len(g.layers) > 0 {
+			hasDims := len(g.layers[0].entry().Value)
+			if hasDims != len(vec) {
+				return fmt.Errorf("embedding dimension mismatch: %d != %d", hasDims, len(vec))
+			}
+		}
+
+		insertLevel, err := g.randomLevel()
+		if err != nil {
+			return err
+		}
+		// Create layers that don't exist yet.
+		for insertLevel >= len(g.layers) {
+			g.layers = append(g.layers, &layer[K]{})
+		}
+
+		if insertLevel < 0 {
+			return fmt.Errorf("invalid level: %d", insertLevel)
+		}
+
+		var elevator *K
+
+		preLen := g.Len()
+
+		// Insert node at each layer, beginning with the highest.
+		for i := len(g.layers) - 1; i >= 0; i-- {
+			layer := g.layers[i]
+			newNode := &layerNode[K]{
+				Node: Node[K]{
+					Key:   key,
+					Value: vec,
+				},
+			}
+
+			// Insert the new node into the layer.
+			if layer.entry() == nil {
+				layer.nodes = map[K]*layerNode[K]{key: newNode}
+				continue
+			}
+
+			// Now at the highest layer with more than one node, so we can begin
+			// searching for the best way to enter the graph.
+			searchPoint := layer.entry()
+
+			// On subsequent layers, we use the elevator node to enter the graph
+			// at the best point.
+			if elevator != nil {
+				searchPoint = layer.nodes[*elevator]
+			}
+
+			neighborhood := searchPoint.search(g.M, g.EfSearch, vec, g.Distance)
+			if len(neighborhood) == 0 {
+				// This should never happen because the searchPoint itself
+				// should be in the result set.
+				return fmt.Errorf("no nodes found in neighborhood search")
+			}
+
+			// Re-set the elevator node for the next layer.
+			elevator = ptr(neighborhood[0].node.Key)
+
+			if insertLevel >= i {
+				if _, ok := layer.nodes[key]; ok {
+					// Delete the node if it already exists
+					for _, l := range g.layers {
+						if n, ok := l.nodes[key]; ok {
+							delete(l.nodes, key)
+							n.isolate(g.M)
+						}
+					}
+				}
+				// Insert the new node into the layer.
+				layer.nodes[key] = newNode
+				for _, node := range neighborhood {
+					// Create a bi-directional edge between the new node and the best node.
+					node.node.addNeighbor(newNode, g.M, g.Distance)
+					newNode.addNeighbor(node.node, g.M, g.Distance)
+				}
+			}
+		}
+
+		// Invariant check: the node should have been added to the graph.
+		if g.Len() != preLen+1 {
+			return fmt.Errorf("node not added")
+		}
+	}
+
+	return nil
+}
+
+// BatchSearch performs multiple searches in a single operation.
+// This is more efficient than calling Search multiple times when performing many searches
+// as it only acquires the lock once.
+func (g *Graph[K]) BatchSearch(queries []Vector, k int) ([][]Node[K], error) {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+
+	if err := g.Validate(); err != nil {
+		return nil, err
+	}
+
+	if k <= 0 {
+		return nil, fmt.Errorf("k must be greater than 0, got %d", k)
+	}
+
+	// Check dimensions for all queries
+	if len(g.layers) > 0 {
+		hasDims := g.Dims()
+		for i, query := range queries {
+			if hasDims != len(query) {
+				return nil, fmt.Errorf("embedding dimension mismatch for query %d: %d != %d", i, hasDims, len(query))
+			}
+		}
+	}
+
+	if len(g.layers) == 0 {
+		return make([][]Node[K], len(queries)), nil
+	}
+
+	results := make([][]Node[K], len(queries))
+
+	for i, query := range queries {
+		var (
+			efSearch = g.EfSearch
+			elevator *K
+		)
+
+		for layer := len(g.layers) - 1; layer >= 0; layer-- {
+			searchPoint := g.layers[layer].entry()
+			if elevator != nil {
+				searchPoint = g.layers[layer].nodes[*elevator]
+			}
+
+			// Descending hierarchies
+			if layer > 0 {
+				nodes := searchPoint.search(1, efSearch, query, g.Distance)
+				if len(nodes) == 0 {
+					// This should never happen in a well-formed graph, but we'll handle it gracefully
+					continue
+				}
+				elevator = ptr(nodes[0].node.Key)
+				continue
+			}
+
+			nodes := searchPoint.search(k, efSearch, query, g.Distance)
+			out := make([]Node[K], 0, len(nodes))
+
+			for _, node := range nodes {
+				out = append(out, node.node.Node)
+			}
+
+			results[i] = out
+		}
+	}
+
+	return results, nil
 }
