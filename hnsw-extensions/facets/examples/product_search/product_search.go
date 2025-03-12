@@ -1,5 +1,5 @@
 // Package examples provides example implementations of the hnsw-extensions.
-package main
+package examples
 
 import (
 	"fmt"

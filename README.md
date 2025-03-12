@@ -18,6 +18,7 @@ operations:
 | Delete    | $O(M^2 \cdot log(n))$ | Delete a vector from the graph               |
 | Search    | $O(log(n))$           | Search for the nearest neighbors of a vector |
 | Lookup    | $O(1)$                | Retrieve a vector by ID                      |
+| Extensions| -                     | Add metadata, faceted search, and more       |
 
 > [!NOTE]
 > Complexities are approximate where $n$ is the number of vectors in the graph
@@ -230,6 +231,139 @@ and memory growth is mostly linear.
   * `SearchWithNegative`: Search with a single negative example.
   * `SearchWithNegatives`: Search with multiple negative examples.
   * `BatchSearchWithNegatives`: Batch search with negative examples.
+
+### Extensions
+
+The library now includes a set of extensions that provide additional functionality for specific use cases. These extensions are located in the `hnsw-extensions` directory.
+
+#### Metadata Extension
+
+The metadata extension allows you to store and retrieve JSON metadata alongside vectors in HNSW graphs. This is useful for applications where you need to associate additional information with each vector, such as product details, document attributes, or user profiles.
+
+**Key features:**
+
+* Store arbitrary JSON metadata with each node
+* Retrieve metadata with search results
+* Type-safe implementation using Go generics
+* Memory-efficient storage
+* Support for all HNSW search operations
+
+Example usage:
+
+```go
+// Create a graph and metadata store
+graph := hnsw.NewGraph[int]()
+store := meta.NewMemoryMetadataStore[int]()
+metadataGraph := meta.NewMetadataGraph(graph, store)
+
+// Create a node with metadata
+node := hnsw.MakeNode(1, []float32{0.1, 0.2, 0.3})
+metadata := map[string]interface{}{
+    "name":     "Product 1",
+    "category": "Electronics",
+    "price":    999.99,
+    "tags":     []string{"smartphone", "5G", "camera"},
+}
+
+// Add the node with metadata
+metadataNode, err := meta.NewMetadataNode(node, metadata)
+if err != nil {
+    log.Fatalf("Failed to create metadata node: %v", err)
+}
+
+err = metadataGraph.Add(metadataNode)
+if err != nil {
+    log.Fatalf("Failed to add node: %v", err)
+}
+
+// Search with metadata
+query := []float32{0.1, 0.2, 0.3}
+results, err := metadataGraph.Search(query, 10)
+if err != nil {
+    log.Fatalf("Search failed: %v", err)
+}
+
+// Access metadata in search results
+for i, result := range results {
+    var metadata map[string]interface{}
+    err := result.GetMetadataAs(&metadata)
+    if err != nil {
+        log.Printf("Failed to get metadata for result %d: %v", i, err)
+        continue
+    }
+    
+    fmt.Printf("Result %d: %s - $%.2f (%s)\n", 
+        i+1, 
+        metadata["name"], 
+        metadata["price"], 
+        metadata["category"],
+    )
+}
+```
+
+[Learn more about the Metadata Extension](./hnsw-extensions/meta/README.md)
+
+#### Faceted Search Extension
+
+The faceted search extension enables filtering and aggregation of search results based on facets (attributes). This is particularly useful for e-commerce, document search, and other applications where users need to narrow down search results by specific criteria.
+
+**Key features:**
+
+* Filter search results by facet values
+* Support for multiple filter types (exact match, range, contains)
+* Negative filtering to exclude specific items
+* Facet aggregation to count occurrences of facet values
+* Efficient implementation that leverages HNSW's fast search capabilities
+
+Example usage:
+
+```go
+// Create a new HNSW graph
+graph := hnsw.NewGraph[int]()
+
+// Create a facet store
+store := facets.NewMemoryFacetStore[int]()
+
+// Create a faceted graph
+facetedGraph := facets.NewFacetedGraph(graph, store)
+
+// Add a node with facets
+node := hnsw.MakeNode(1, []float32{0.1, 0.2, 0.3})
+productFacets := []facets.Facet{
+    facets.NewBasicFacet("category", "Electronics"),
+    facets.NewBasicFacet("price", 999.99),
+    facets.NewBasicFacet("brand", "TechCo"),
+    facets.NewBasicFacet("tag", "smartphone"),
+}
+
+facetedNode := facets.NewFacetedNode(node, productFacets)
+facetedGraph.Add(facetedNode)
+
+// Search with facet filters
+query := []float32{0.1, 0.2, 0.3}
+priceFilter := facets.NewRangeFilter("price", 0, 1000)
+categoryFilter := facets.NewEqualityFilter("category", "Electronics")
+
+results, err := facetedGraph.Search(
+    query,
+    []facets.FacetFilter{priceFilter, categoryFilter},
+    10,
+    2,
+)
+```
+
+[Learn more about the Faceted Search Extension](./hnsw-extensions/facets/README.md)
+
+#### Running the Examples
+
+To run the examples for all extensions, use the following command:
+
+```bash
+cd hnsw-extensions
+go run main.go
+```
+
+This will demonstrate the usage of each extension with practical examples.
 
 ### Experimental Quality Metrics
 
