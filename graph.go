@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/coder/hnsw/heap"
+	"github.com/TFMV/hnsw/heap"
 	"golang.org/x/exp/maps"
 )
 
