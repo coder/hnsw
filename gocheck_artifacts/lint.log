@@ -1,0 +1,51 @@
+example/negative/main.go:18:7: Error return value of `g.Add` is not checked (errcheck)
+	g.Add(
+	     ^
+example/main.go:19:7: Error return value of `g.Add` is not checked (errcheck)
+	g.Add(
+	     ^
+example/batch_delete/main.go:18:7: Error return value of `g.Add` is not checked (errcheck)
+	g.Add(
+	     ^
+encode.go:308:19: Error return value of `tmp.Cleanup` is not checked (errcheck)
+	defer tmp.Cleanup()
+	                 ^
+encode_test.go:123:9: Error return value of `g1.Add` is not checked (errcheck)
+		g1.Add(
+		      ^
+encode_test.go:167:9: Error return value of `g1.Add` is not checked (errcheck)
+		g1.Add(
+		      ^
+graph_benchmark_test.go:65:11: Error return value of `g.Search` is not checked (errcheck)
+		g.Search(queryVec, 10)
+		        ^
+graph_benchmark_test.go:86:12: Error return value of `g.Search` is not checked (errcheck)
+			g.Search(queryVec, 10)
+			        ^
+graph_benchmark_test.go:116:13: Error return value of `g.Search` is not checked (errcheck)
+				g.Search(queryVec, 10)
+				        ^
+graph_benchmark_test.go:184:13: Error return value of `g.BatchAdd` is not checked (errcheck)
+		g.BatchAdd(batch)
+		          ^
+graph_benchmark_test.go:225:16: Error return value of `g.BatchSearch` is not checked (errcheck)
+		g.BatchSearch(queries, 10)
+		             ^
+negative_benchmark_test.go:39:23: Error return value of `g.SearchWithNegative` is not checked (errcheck)
+		g.SearchWithNegative(query, negative, 10, 0.5)
+		                    ^
+negative_benchmark_test.go:63:24: Error return value of `g.SearchWithNegatives` is not checked (errcheck)
+		g.SearchWithNegatives(query, negatives, 10, 0.5)
+		                     ^
+negative_benchmark_test.go:93:29: Error return value of `g.BatchSearchWithNegatives` is not checked (errcheck)
+		g.BatchSearchWithNegatives(queries, negatives, 10, 0.5)
+		                          ^
+negative_benchmark_test.go:125:24: Error return value of `g.SearchWithNegative` is not checked (errcheck)
+			g.SearchWithNegative(query, negative, 10, 0.5)
+			                    ^
+negative_benchmark_test.go:132:25: Error return value of `g.SearchWithNegatives` is not checked (errcheck)
+			g.SearchWithNegatives(query, negatives, 10, 0.5)
+			                     ^
+negative_benchmark_test.go:160:25: Error return value of `g.SearchWithNegative` is not checked (errcheck)
+				g.SearchWithNegative(query, negative, 10, weight)
+				                    ^

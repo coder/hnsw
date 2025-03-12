@@ -180,8 +180,11 @@ func Benchmark_HSNW(b *testing.B) {
 	for _, size := range sizes {
 		b.Run(strconv.Itoa(size), func(b *testing.B) {
 			g := Graph[int]{}
+			g.M = 16 // Set M to a valid value
 			g.Ml = 0.5
 			g.Distance = EuclideanDistance
+			g.EfSearch = 20                     // Set EfSearch to a valid value
+			g.Rng = rand.New(rand.NewSource(0)) // Initialize the random number generator
 			for i := 0; i < size; i++ {
 				err := g.Add(Node[int]{
 					Key:   i,

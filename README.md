@@ -215,7 +215,7 @@ and memory growth is mostly linear.
 * **Parallel Search**: Added `ParallelSearch` method that automatically parallelizes search operations for large graphs and high-dimensional data.
 * **Optimized Node Management**: Enhanced neighbor selection and connectivity maintenance.
 * **Thread-Safe Implementation**: Added synchronization primitives to enable concurrent operations.
-* **Batch Operations**: Added `BatchAdd` and `BatchSearch` methods for high-throughput scenarios.
+* **Batch Operations**: Added `BatchAdd`, `BatchSearch`, and `BatchDelete` methods for high-throughput scenarios.
 
 ### Experimental New APIs
 
@@ -225,6 +225,11 @@ and memory growth is mostly linear.
 * **Quality Metrics**: New `QualityMetrics()` method in the Analyzer to evaluate graph quality.
 * **BatchAdd**: Add multiple nodes in a single operation with a single lock acquisition.
 * **BatchSearch**: Perform multiple searches in a single operation with a single lock acquisition.
+* **BatchDelete**: Remove multiple nodes in a single operation with a single lock acquisition, returning a boolean slice indicating which keys were successfully deleted.
+* **Negative Examples**: New methods to search with negative examples:
+  * `SearchWithNegative`: Search with a single negative example.
+  * `SearchWithNegatives`: Search with multiple negative examples.
+  * `BatchSearchWithNegatives`: Batch search with negative examples.
 
 ### Experimental Quality Metrics
 
@@ -314,7 +319,127 @@ queries := [][]float32{
     {0.3, 0.3, 0.3},
 }
 batchResults, _ := g.BatchSearch(queries, 2)
+
+// Delete multiple nodes in a single operation
+keysToDelete := []int{100, 101, 102}
+deleteResults := g.BatchDelete(keysToDelete)
+for i, key := range keysToDelete {
+    fmt.Printf("Deleted %d: %v\n", key, deleteResults[i])
+}
 ```
+
+### Negative Examples
+
+The HNSW implementation now supports searching with negative examples, allowing you to find vectors similar to your query but dissimilar to specified negative examples:
+
+```go
+// Create a graph with some vectors
+g, err := hnsw.NewGraphWithConfig[string](16, 0.25, 20, hnsw.CosineDistance)
+if err != nil {
+    log.Fatalf("failed to create graph: %v", err)
+}
+
+// Add some vectors representing different concepts
+g.Add(
+    hnsw.MakeNode("dog", []float32{1.0, 0.2, 0.1, 0.0}),
+    hnsw.MakeNode("puppy", []float32{0.9, 0.3, 0.2, 0.1}),
+    hnsw.MakeNode("cat", []float32{0.1, 1.0, 0.2, 0.0}),
+    hnsw.MakeNode("kitten", []float32{0.2, 0.9, 0.3, 0.1}),
+    // ... more vectors ...
+)
+
+// Search with a single negative example
+dogQuery := []float32{1.0, 0.2, 0.1, 0.0}      // dog query
+puppyNegative := []float32{0.9, 0.3, 0.2, 0.1} // puppy (negative example)
+
+// Find dog-related concepts but not puppies (negativeWeight = 0.5)
+results, err := g.SearchWithNegative(dogQuery, puppyNegative, 3, 0.5)
+if err != nil {
+    log.Fatalf("failed to search with negative: %v", err)
+}
+
+// Search with multiple negative examples
+petQuery := []float32{0.3, 0.3, 0.3, 0.3}      // general pet query
+dogNegative := []float32{1.0, 0.2, 0.1, 0.0}   // dog (negative example)
+catNegative := []float32{0.1, 1.0, 0.2, 0.0}   // cat (negative example)
+
+negatives := []hnsw.Vector{dogNegative, catNegative}
+
+// Find pet-related concepts but not dogs or cats (negativeWeight = 0.7)
+results, err = g.SearchWithNegatives(petQuery, negatives, 3, 0.7)
+if err != nil {
+    log.Fatalf("failed to search with negatives: %v", err)
+}
+
+// Batch search with negative examples
+queries := []hnsw.Vector{
+    {1.0, 0.2, 0.1, 0.0}, // dog query
+    {0.1, 1.0, 0.2, 0.0}, // cat query
+}
+
+batchNegatives := [][]hnsw.Vector{
+    {
+        {0.9, 0.3, 0.2, 0.1}, // puppy (negative for dog query)
+    },
+    {
+        {0.2, 0.9, 0.3, 0.1}, // kitten (negative for cat query)
+    },
+}
+
+batchResults, err := g.BatchSearchWithNegatives(queries, batchNegatives, 3, 0.5)
+if err != nil {
+    log.Fatalf("failed to batch search with negatives: %v", err)
+}
+```
+
+#### Negative Examples Design
+
+The negative examples feature allows you to find vectors that are similar to your query but dissimilar to specified negative examples:
+
+1. **SearchWithNegative**: Search with a single negative example.
+
+   ```go
+   func (g *Graph[K]) SearchWithNegative(query, negative Vector, k int, negativeWeight float32) ([]Node[K], error)
+   ```
+
+2. **SearchWithNegatives**: Search with multiple negative examples.
+
+   ```go
+   func (g *Graph[K]) SearchWithNegatives(query Vector, negatives []Vector, k int, negativeWeight float32) ([]Node[K], error)
+   ```
+
+3. **BatchSearchWithNegatives**: Perform multiple searches with negative examples in a single operation.
+
+   ```go
+   func (g *Graph[K]) BatchSearchWithNegatives(queries []Vector, negatives [][]Vector, k int, negativeWeight float32) ([][]Node[K], error)
+   ```
+
+4. **Parameters**:
+   * **query**: The query vector to search for.
+   * **negative/negatives**: The negative example vector(s) to avoid.
+   * **k**: The number of results to return.
+   * **negativeWeight**: The weight to apply to negative examples (0.0 to 1.0).
+     * 0.0: Ignore negative examples completely.
+     * 1.0: Strongly avoid negative examples.
+     * Recommended range: 0.3 to 0.7 for balanced results.
+
+5. **Use Cases**:
+   * **Content Filtering**: Find content similar to a query but excluding specific categories.
+   * **Diversity**: Ensure diverse search results by avoiding similar items.
+   * **Preference Learning**: Incorporate user preferences by avoiding disliked items.
+   * **Semantic Search**: Refine search results by excluding irrelevant concepts.
+
+6. **Performance Considerations**:
+   * The search process remains efficient with O(log n) complexity.
+   * The scoring calculation includes additional distance computations for negative examples.
+   * For many negative examples, consider using a smaller negativeWeight to maintain result quality.
+
+7. **Implementation Details**:
+   * Results are scored based on similarity to the query and dissimilarity to negative examples.
+   * The final score is a weighted combination: `score = similarity - (negativeWeight * negativeSimilarity)`.
+   * Results are sorted by this combined score, returning the top k items.
+
+This feature enables more nuanced and refined search capabilities, allowing you to express not just what you're looking for, but also what you want to avoid.
 
 ### Benchmark Results
 
@@ -326,6 +451,7 @@ Our benchmarks show the performance characteristics of the thread-safe implement
 |-----------|-------------------|-------------------|-------|
 | Add       | 4,967             | 9,425             | Concurrent adds are slower due to lock contention |
 | Search    | 32,758            | 16,967            | Concurrent searches are faster due to parallelism |
+| Delete    | 22,131            | 399.1             | Batch deletes are more efficient for large operations |
 
 #### Batch vs. Individual Operations
 
@@ -333,6 +459,7 @@ Our benchmarks show the performance characteristics of the thread-safe implement
 |-----------|--------------|-------------------|-------|
 | Add       | 18,291,067    | 18,134,883        | Comparable performance for large batches |
 | Search    | 2,923,725     | 3,036,183         | Batch searches are slightly faster |
+| Delete    | 22,131        | 399.1             | Batch deletes are more efficient for large operations |
 
 #### ParallelSearch Performance
 
@@ -369,7 +496,7 @@ The thread-safe implementation uses a read-write mutex pattern to allow multiple
 2. **Lock Usage**:
    * Read operations (`Search`, `Lookup`, `Dims`) use read locks (`RLock`/`RUnlock`)
    * Write operations (`Add`, `Delete`) use write locks (`Lock`/`Unlock`)
-   * Batch operations (`BatchAdd`, `BatchSearch`) use a single lock acquisition for multiple operations
+   * Batch operations (`BatchAdd`, `BatchSearch`, `BatchDelete`) use a single lock acquisition for multiple operations
 
 3. **Deadlock Prevention**: Methods called from within locked methods (like `Len` and `Dims` when called from `Add`) avoid acquiring locks again to prevent deadlocks.
 
@@ -411,17 +538,30 @@ Batch operations are designed to optimize performance for high-throughput scenar
    }
    ```
 
-3. **Performance Benefits**:
+3. **BatchDelete**: Removes multiple nodes in a single operation with a single lock acquisition, returning a slice of booleans indicating success for each key.
+
+   ```go
+   func (g *Graph[K]) BatchDelete(keys []K) []bool {
+       g.mu.Lock()
+       defer g.mu.Unlock()
+       
+       // Process all deletions in a batch...
+       // Return a slice of booleans indicating which keys were successfully deleted
+   }
+   ```
+
+4. **Performance Benefits**:
    * **Reduced Lock Contention**: Acquiring the lock once for multiple operations reduces contention.
    * **Amortized Overhead**: The overhead of lock acquisition is amortized over multiple operations.
    * **Improved Throughput**: For high-throughput scenarios, batch operations can significantly improve performance.
 
-4. **Use Cases**:
+5. **Use Cases**:
    * **Bulk Loading**: When loading a large number of vectors into the graph.
    * **Batch Processing**: When processing a batch of queries from a queue.
    * **High-Throughput APIs**: When serving a high volume of requests.
+   * **Bulk Deletion**: When removing multiple vectors from the graph at once.
 
-5. **Limitations**:
+6. **Limitations**:
    * **Memory Usage**: Batch operations may require more memory to store intermediate results.
    * **Latency**: Individual operations within a batch may experience higher latency due to processing order.
    * **Error Handling**: An error in one operation may affect the entire batch.
