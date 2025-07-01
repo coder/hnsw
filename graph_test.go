@@ -248,3 +248,14 @@ func TestGraph_DefaultCosine(t *testing.T) {
 		neighbors,
 	)
 }
+
+func TestGraph_RemoveAllNodes(t *testing.T) {
+	var vec = []float32{1}
+
+	for i := 0; i < 10; i++ {
+		g := NewGraph[int]()
+		g.Add(MakeNode(1, vec))
+		g.Delete(1)
+		g.Add(MakeNode(1, vec))
+	}
+}
