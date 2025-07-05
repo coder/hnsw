@@ -402,13 +402,35 @@ func (g *Graph[K]) Add(nodes ...Node[K]) {
 
 		// Invariant check: the node should have been added to the graph.
 		if g.Len() != preLen+1 {
-			panic("node not added")
+			if len(g.layers) > 0 && g.layers[len(g.layers)-1].entry() == nil {
+				g.layers = g.layers[:len(g.layers)-1]
+			}
 		}
 	}
 }
 
 // Search finds the k nearest neighbors from the target node.
 func (h *Graph[K]) Search(near Vector, k int) []Node[K] {
+	sr := h.search(near, k)
+	out := make([]Node[K], len(sr))
+	for i, node := range sr {
+		out[i] = node.Node
+	}
+	return out
+}
+
+// SearchWithDistance finds the k nearest neighbors from the target node
+// and returns the distance.
+func (h *Graph[K]) SearchWithDistance(near Vector, k int) []SearchResult[K] {
+	return h.search(near, k)
+}
+
+type SearchResult[T cmp.Ordered] struct {
+	Node[T]
+	Distance float32
+}
+
+func (h *Graph[K]) search(near Vector, k int) []SearchResult[K] {
 	h.assertDims(near)
 	if len(h.layers) == 0 {
 		return nil
@@ -434,10 +456,13 @@ func (h *Graph[K]) Search(near Vector, k int) []Node[K] {
 		}
 
 		nodes := searchPoint.search(k, efSearch, near, h.Distance)
-		out := make([]Node[K], 0, len(nodes))
+		out := make([]SearchResult[K], 0, len(nodes))
 
 		for _, node := range nodes {
-			out = append(out, node.node.Node)
+			out = append(out, SearchResult[K]{
+				Node:     node.node.Node,
+				Distance: node.dist,
+			})
 		}
 
 		return out
@@ -462,15 +487,31 @@ func (h *Graph[K]) Delete(key K) bool {
 		return false
 	}
 
+	var deleteLayer = map[int]struct{}{}
 	var deleted bool
-	for _, layer := range h.layers {
+	for i, layer := range h.layers {
 		node, ok := layer.nodes[key]
 		if !ok {
 			continue
 		}
 		delete(layer.nodes, key)
+		if len(layer.nodes) == 0 {
+			deleteLayer[i] = struct{}{}
+		}
 		node.isolate(h.M)
 		deleted = true
+	}
+
+	if len(deleteLayer) > 0 {
+		var newLayers = make([]*layer[K], 0, len(h.layers)-len(deleteLayer))
+		for i, layer := range h.layers {
+			if _, ok := deleteLayer[i]; ok {
+				continue
+			}
+			newLayers = append(newLayers, layer)
+		}
+
+		h.layers = newLayers
 	}
 
 	return deleted
