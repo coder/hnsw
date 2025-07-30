@@ -178,6 +178,9 @@ func (n *layerNode[K]) replenish(m int) {
 func (n *layerNode[K]) isolate(m int) {
 	for _, neighbor := range n.neighbors {
 		delete(neighbor.neighbors, n.Key)
+	}
+
+	for _, neighbor := range n.neighbors {
 		neighbor.replenish(m)
 	}
 }
@@ -487,7 +490,7 @@ func (h *Graph[K]) Delete(key K) bool {
 		return false
 	}
 
-	var deleteLayer = map[int]struct{}{}
+	deleteLayer := map[int]struct{}{}
 	var deleted bool
 	for i, layer := range h.layers {
 		node, ok := layer.nodes[key]
@@ -503,7 +506,7 @@ func (h *Graph[K]) Delete(key K) bool {
 	}
 
 	if len(deleteLayer) > 0 {
-		var newLayers = make([]*layer[K], 0, len(h.layers)-len(deleteLayer))
+		newLayers := make([]*layer[K], 0, len(h.layers)-len(deleteLayer))
 		for i, layer := range h.layers {
 			if _, ok := deleteLayer[i]; ok {
 				continue
