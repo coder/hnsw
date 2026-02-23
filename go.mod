@@ -1,6 +1,6 @@
 module github.com/coder/hnsw
 
-go 1.21.4
+go 1.26.0
 
 require (
 	github.com/google/renameio v1.0.1
