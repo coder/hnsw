@@ -262,6 +262,32 @@ func TestGraph_RemoveAllNodes(t *testing.T) {
 	}
 }
 
+func TestGraph_SearchFindsCorrectNearest(t *testing.T) {
+	// With the old search algorithm, termination was too aggressive (stopped
+	// when no neighbor beat result.Min) and the result set was bounded by k
+	// instead of efSearch. This caused the search to miss true nearest
+	// neighbors, especially with small k and large efSearch.
+	g := newTestGraph[int]()
+	for i := 0; i < 100; i++ {
+		g.Add(Node[int]{Key: i, Value: Vector{float32(i)}})
+	}
+
+	// Search for k=1 nearest to 50.5. The answer must be 50 or 51.
+	results := g.Search(Vector{50.5}, 1)
+	require.Len(t, results, 1)
+	require.Contains(t, []int{50, 51}, results[0].Key,
+		"expected nearest neighbor to 50.5, got key=%d", results[0].Key)
+
+	// Search for k=3 nearest to 0.0. Must return 0, 1, 2.
+	results = g.Search(Vector{0.0}, 3)
+	require.Len(t, results, 3)
+	keys := make([]int, 3)
+	for i, r := range results {
+		keys[i] = r.Key
+	}
+	require.Subset(t, []int{0, 1, 2}, keys)
+}
+
 func TestGraph_DeleteReplenishUsesGraphDistance(t *testing.T) {
 	// replenish() previously hardcoded CosineDistance. After deleting a
 	// node from a EuclideanDistance graph, replenish must use the correct
