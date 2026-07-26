@@ -165,6 +165,44 @@ func TestGraph_AddDelete(t *testing.T) {
 	})
 }
 
+func TestGraph_AddReplacesExistingNode(t *testing.T) {
+	t.Parallel()
+
+	const numNodes = 128
+	g := newTestGraph[int]()
+	for i := 0; i < numNodes; i++ {
+		g.Add(MakeNode(i, Vector{float32(i)}))
+	}
+
+	for i := 0; i < numNodes; i++ {
+		replacement := Vector{float32(i)}
+		g.Add(MakeNode(i, replacement))
+
+		require.Equal(t, numNodes, g.Len())
+		got, ok := g.Lookup(i)
+		require.True(t, ok)
+		require.Equal(t, replacement, got)
+	}
+
+	for i := 0; i < numNodes; i++ {
+		replacement := Vector{float32(numNodes + i)}
+		g.Add(MakeNode(i, replacement))
+
+		require.Equal(t, numNodes, g.Len())
+		got, ok := g.Lookup(i)
+		require.True(t, ok)
+		require.Equal(t, replacement, got)
+	}
+
+	for i := 0; i < numNodes; i++ {
+		replacement := Vector{float32(numNodes + i)}
+		results := g.Search(replacement, 1)
+		require.NotEmpty(t, results)
+		require.Equal(t, i, results[0].Key)
+		require.Equal(t, replacement, results[0].Value)
+	}
+}
+
 func Benchmark_HSNW(b *testing.B) {
 	b.ReportAllocs()
 
