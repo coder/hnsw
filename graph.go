@@ -352,6 +352,10 @@ func (g *Graph[K]) Add(nodes ...Node[K]) {
 
 		g.assertDims(vec)
 		insertLevel := g.randomLevel()
+		if _, ok := g.Lookup(key); ok {
+			g.Delete(key)
+		}
+
 		// Create layers that don't exist yet.
 		for insertLevel >= len(g.layers) {
 			g.layers = append(g.layers, &layer[K]{})
@@ -388,7 +392,9 @@ func (g *Graph[K]) Add(nodes ...Node[K]) {
 			// On subsequent layers, we use the elevator node to enter the graph
 			// at the best point.
 			if elevator != nil {
-				searchPoint = layer.nodes[*elevator]
+				if next, ok := layer.nodes[*elevator]; ok {
+					searchPoint = next
+				}
 			}
 
 			if g.Distance == nil {
@@ -406,9 +412,6 @@ func (g *Graph[K]) Add(nodes ...Node[K]) {
 			elevator = ptr(neighborhood[0].node.Key)
 
 			if insertLevel >= i {
-				if _, ok := layer.nodes[key]; ok {
-					g.Delete(key)
-				}
 				// Insert the new node into the layer.
 				layer.nodes[key] = newNode
 				for _, node := range neighborhood {
@@ -464,7 +467,9 @@ func (h *Graph[K]) search(near Vector, k int) []SearchResult[K] {
 	for layer := len(h.layers) - 1; layer >= 0; layer-- {
 		searchPoint := h.layers[layer].entry()
 		if elevator != nil {
-			searchPoint = h.layers[layer].nodes[*elevator]
+			if next, ok := h.layers[layer].nodes[*elevator]; ok {
+				searchPoint = next
+			}
 		}
 
 		// Descending hierarchies
