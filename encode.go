@@ -7,8 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
-
-	"github.com/google/renameio"
+	"path/filepath"
 )
 
 // errorEncoder is a helper type to encode multiple values
@@ -300,12 +299,22 @@ func LoadSavedGraph[K cmp.Ordered](path string) (*SavedGraph[K], error) {
 }
 
 // Save writes the graph to the file.
+//
+// The graph is written to a temporary file in the same directory, fsynced, and
+// renamed over the target, so an interrupted save leaves the previous graph in
+// place rather than a truncated one. os.Rename replaces an existing file on
+// every platform Go supports, Windows included.
 func (g *SavedGraph[K]) Save() error {
-	tmp, err := renameio.TempFile("", g.Path)
+	tmp, err := os.CreateTemp(filepath.Dir(g.Path), filepath.Base(g.Path)+".tmp-*")
 	if err != nil {
 		return err
 	}
-	defer tmp.Cleanup()
+	tmpName := tmp.Name()
+	defer func() {
+		// Both are no-ops once the rename below has succeeded.
+		_ = tmp.Close()
+		_ = os.Remove(tmpName)
+	}()
 
 	wr := bufio.NewWriter(tmp)
 	err = g.Export(wr)
@@ -318,7 +327,19 @@ func (g *SavedGraph[K]) Save() error {
 		return fmt.Errorf("flushing: %w", err)
 	}
 
-	err = tmp.CloseAtomicallyReplace()
+	// Before the rename, not after: a rename that reaches the disk ahead of the
+	// data it points at is what loses both graphs instead of one.
+	err = tmp.Sync()
+	if err != nil {
+		return fmt.Errorf("syncing: %w", err)
+	}
+
+	err = tmp.Close()
+	if err != nil {
+		return fmt.Errorf("closing: %w", err)
+	}
+
+	err = os.Rename(tmpName, g.Path)
 	if err != nil {
 		return fmt.Errorf("closing atomically: %w", err)
 	}

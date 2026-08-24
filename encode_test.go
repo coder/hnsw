@@ -3,6 +3,8 @@ package hnsw
 import (
 	"bytes"
 	"cmp"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -230,4 +232,42 @@ func BenchmarkGraph_Export(b *testing.B) {
 		}
 		buf.Reset()
 	}
+}
+
+// TestSavedGraph_ReplacesAndLeavesNoTempFiles covers what the atomic write is
+// for: a second Save must replace the first graph rather than fail on an
+// existing file, and it must not leave its temporary file behind.
+//
+// Both are worth asserting because os.Rename over an existing file is the one
+// part of this that is platform-dependent — it is a plain rename on Unix and
+// MoveFileEx with MOVEFILE_REPLACE_EXISTING on Windows.
+func TestSavedGraph_ReplacesAndLeavesNoTempFiles(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "graph")
+
+	g1, err := LoadSavedGraph[int](path)
+	require.NoError(t, err)
+	for i := 0; i < 8; i++ {
+		g1.Add(Node[int]{i, randFloats(1)})
+	}
+	require.NoError(t, g1.Save())
+
+	// The second save writes over a file that already exists.
+	for i := 8; i < 24; i++ {
+		g1.Add(Node[int]{i, randFloats(1)})
+	}
+	require.NoError(t, g1.Save())
+
+	g2, err := LoadSavedGraph[int](path)
+	require.NoError(t, err)
+	require.Equal(t, 24, g2.Len(), "the second save should have replaced the first")
+	requireGraphApproxEquals(t, g1.Graph, g2.Graph)
+
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	names := make([]string, 0, len(entries))
+	for _, e := range entries {
+		names = append(names, e.Name())
+	}
+	require.Equal(t, []string{"graph"}, names, "no temporary file should survive a save")
 }
