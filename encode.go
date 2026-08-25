@@ -38,6 +38,9 @@ func binaryRead(r io.Reader, data interface{}) (int, error) {
 		if err != nil {
 			return 0, err
 		}
+		if ln < 0 {
+			return 0, fmt.Errorf("invalid string length: %d", ln)
+		}
 
 		s := make([]byte, ln)
 		_, err = binaryRead(r, &s)
@@ -49,6 +52,9 @@ func binaryRead(r io.Reader, data interface{}) (int, error) {
 		_, err := binaryRead(r, &ln)
 		if err != nil {
 			return 0, err
+		}
+		if ln < 0 {
+			return 0, fmt.Errorf("invalid vector length: %d", ln)
 		}
 
 		*v = make([]float32, ln)
@@ -207,6 +213,13 @@ func (h *Graph[K]) Import(r io.Reader) error {
 	if err != nil {
 		return err
 	}
+	if nLayers < 0 {
+		return fmt.Errorf("invalid number of layers: %d", nLayers)
+	}
+
+	// Every vector must share the dimensionality of the vectors already in
+	// the graph, or of the first vector decoded if it is empty.
+	dims := h.Dims()
 
 	h.layers = make([]*layer[K], nLayers)
 	for i := 0; i < nLayers; i++ {
@@ -214,6 +227,9 @@ func (h *Graph[K]) Import(r io.Reader) error {
 		_, err = binaryRead(r, &nNodes)
 		if err != nil {
 			return err
+		}
+		if nNodes < 0 {
+			return fmt.Errorf("invalid number of nodes in layer %d: %d", i, nNodes)
 		}
 
 		nodes := make(map[K]*layerNode[K], nNodes)
@@ -224,6 +240,14 @@ func (h *Graph[K]) Import(r io.Reader) error {
 			_, err = multiBinaryRead(r, &key, &vec, &nNeighbors)
 			if err != nil {
 				return fmt.Errorf("decoding node %d: %w", j, err)
+			}
+			if nNeighbors < 0 {
+				return fmt.Errorf("invalid neighbor count for node %v: %d", key, nNeighbors)
+			}
+			if dims == 0 {
+				dims = len(vec)
+			} else if len(vec) != dims {
+				return fmt.Errorf("node %v has a %d-dimensional vector, expected %d dimensions", key, len(vec), dims)
 			}
 
 			neighbors := make([]K, nNeighbors)
@@ -252,7 +276,11 @@ func (h *Graph[K]) Import(r io.Reader) error {
 		// Fill in neighbor pointers
 		for _, node := range nodes {
 			for key := range node.neighbors {
-				node.neighbors[key] = nodes[key]
+				target, ok := nodes[key]
+				if !ok {
+					return fmt.Errorf("node %v has neighbor %v, but it is not present in its layer", node.Key, key)
+				}
+				node.neighbors[key] = target
 			}
 		}
 		h.layers[i] = &layer[K]{nodes: nodes}
